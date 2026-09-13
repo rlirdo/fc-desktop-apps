@@ -49,6 +49,10 @@ _tpl = os.path.join(os.path.dirname(_pptx.__file__), 'templates')
 _tpl_files = [(os.path.join(_tpl, f), os.path.join('pptx', 'templates')) for f in os.listdir(_tpl)]
 datas += _tpl_files
 print('[spec] pptx templates 逐檔加入 %d 個：%s' % (len(_tpl_files), sorted(os.listdir(_tpl))))
+# 關鍵（macOS）：python-pptx 用 pptx/oxml/../templates/x.xml 讀範本；純 Python 模組在 PYZ 內，
+# 磁碟上沒有 pptx/oxml/ 目錄，POSIX 逐層解析 ".." 會 ENOENT（Windows 會先字串正規化所以沒事）。
+# 放一個佔位檔讓 pptx/oxml/ 真實存在。
+datas.append((os.path.join(HERE, 'pptx_oxml.keep'), os.path.join('pptx', 'oxml')))
 
 # ---------------------------------------------------------------- 模組
 hiddenimports = [

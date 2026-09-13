@@ -1,0 +1,2 @@
+此檔由 build.spec 放進封裝內的 pptx/oxml/ 目錄，讓該目錄在磁碟上真實存在。
+python-pptx 以 pptx/oxml/../templates/*.xml 讀範本；macOS（POSIX）逐層解析路徑，oxml 目錄不存在會 ENOENT。
