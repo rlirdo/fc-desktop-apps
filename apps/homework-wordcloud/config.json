@@ -1,0 +1,33 @@
+{
+  "course_name": "環境化學",
+  "teacher": "○○○ 老師",
+  "ta_name": "○○○ 教學助理",
+  "semester_start": "2026-09-06",
+  "input_dir": "input",
+  "output_dir": "output",
+  "logo_path": "assets/logo_placeholder.png",
+  "deck_series": "",
+  "min_words_for_cloud": 5,
+  "user_words": [
+    "綠色化學",
+    "十二原則",
+    "原子經濟",
+    "水化學",
+    "生成式AI",
+    "提示詞"
+  ],
+  "stopwords_extra": [
+    "這次",
+    "這題",
+    "本週",
+    "老師說"
+  ],
+  "keep_short": [
+    "AI",
+    "pH",
+    "CO2",
+    "UV",
+    "DNA",
+    "6R"
+  ]
+}

@@ -1,0 +1,76 @@
+# -*- mode: python ; coding: utf-8 -*-
+"""
+PyInstaller spec：週報產生器（WeeklyReportMaker）
+  Windows :  pyinstaller build.spec   →  dist\WeeklyReportMaker.exe
+  macOS   :  pyinstaller build.spec   →  dist/WeeklyReportMaker.app
+
+onefile＋GUI（console=False）。--selftest 在 GUI 模式下仍然可用：
+程式會接上呼叫端的主控台印出結果，同時把記錄寫到暫存資料夾的
+WeeklyReportMaker_selftest.log，並用回傳碼（0 成功 / 1 失敗）表示結果。
+
+注意：不打包任何字型檔（微軟正黑體有授權限制）；字型只寫名稱進 pptx。
+"""
+import os
+import sys
+
+APP = "WeeklyReportMaker"
+HERE = os.path.abspath(SPECPATH)
+
+datas = [
+    (os.path.join(HERE, "selftest", "sample_data.json"), "selftest"),
+    (os.path.join(HERE, "icon.png"), "."),
+]
+if os.path.exists(os.path.join(HERE, "icon.ico")):
+    datas.append((os.path.join(HERE, "icon.ico"), "."))
+
+a = Analysis(
+    [os.path.join(HERE, "app.py")],
+    pathex=[HERE],
+    binaries=[],
+    datas=datas,
+    hiddenimports=["core", "report_builder", "validator"],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=["numpy", "pandas", "matplotlib", "scipy", "pytest", "setuptools",
+              "IPython", "PyQt5", "PySide6", "tkinter.test", "test"],
+    noarchive=False,
+)
+pyz = PYZ(a.pure)
+
+icon = os.path.join(HERE, "icon.ico" if sys.platform.startswith("win") else "icon.png")
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name=APP,
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    runtime_tmpdir=None,
+    console=False,              # GUI 模式；--selftest 仍會接上父行程的主控台
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=icon,
+)
+
+if sys.platform == "darwin":
+    app = BUNDLE(
+        exe,
+        name=APP + ".app",
+        icon=os.path.join(HERE, "icon.png"),
+        bundle_identifier="tw.edu.ndhu.biomimicry.weeklyreportmaker",
+        info_plist={
+            "CFBundleName": APP,
+            "CFBundleDisplayName": "週報產生器",
+            "CFBundleShortVersionString": "1.0.0",
+            "NSHighResolutionCapable": True,
+        },
+    )

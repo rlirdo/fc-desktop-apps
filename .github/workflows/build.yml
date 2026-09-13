@@ -1,0 +1,80 @@
+name: build-desktop-apps
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+        app:
+          - { dir: weekly-report,      name: WeeklyReportMaker }
+          - { dir: name-masker,        name: NameMasker }
+          - { dir: homework-wordcloud, name: HomeworkWordCloud }
+          - { dir: club-manager,       name: ClubManager }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/${{ matrix.app.dir }}
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+      - name: Selftest (source)
+        run: python app.py --selftest
+      - name: Build
+        run: pyinstaller --noconfirm build.spec
+      - name: Selftest (packaged, Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = "dist\${{ matrix.app.name }}.exe"
+          if (!(Test-Path $exe)) { throw "exe not found" }
+          $p = Start-Process -FilePath $exe -ArgumentList "--selftest" -Wait -PassThru -NoNewWindow
+          Get-ChildItem -Recurse -Filter "*selftest*.log" -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName }
+          if ($p.ExitCode -ne 0) { throw "packaged selftest failed: $($p.ExitCode)" }
+      - name: Selftest (packaged, macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -e
+          if [ -d "dist/${{ matrix.app.name }}.app" ]; then
+            BIN="dist/${{ matrix.app.name }}.app/Contents/MacOS/${{ matrix.app.name }}"
+          else
+            BIN="dist/${{ matrix.app.name }}"
+          fi
+          chmod +x "$BIN"
+          "$BIN" --selftest
+          find . -name "*selftest*.log" -exec cat {} \; || true
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cd dist
+          if [ -d "${{ matrix.app.name }}.app" ]; then
+            ditto -c -k --keepParent "${{ matrix.app.name }}.app" "${{ matrix.app.name }}-macOS.zip"
+          else
+            zip -r "${{ matrix.app.name }}-macOS.zip" "${{ matrix.app.name }}"
+          fi
+      - name: Upload (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app.name }}-windows
+          path: apps/${{ matrix.app.dir }}/dist/${{ matrix.app.name }}.exe
+      - name: Upload (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app.name }}-macos
+          path: apps/${{ matrix.app.dir }}/dist/${{ matrix.app.name }}-macOS.zip

@@ -1,0 +1,1456 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>仰望科學社團管理系統・花蓮縣立國風國民中學</title>
+<style>
+/* ===================================================================
+   仰望科學社團管理系統 — 單一檔案版
+   視覺語言沿用研習現場管理台（厚框積木）：平塗色塊、3px 黑框、硬影
+   =================================================================== */
+:root{
+  --paper:#faf7f0; --ink:#111; --line:#000; --card:#fff;
+  --hair:#d4cfc4; --muted:#5b5650;
+  --ok:#2fbf71; --no:#ff5a5f; --warn:#ffd23f; --info:#a8c7fa; --mint:#7fd1b9;
+  --bw:3px; --sh:6px;
+  --s1:4px; --s2:8px; --s3:16px; --s4:24px;
+  --sans:system-ui,-apple-system,"Segoe UI","Microsoft JhengHei","PingFang TC","Noto Sans CJK TC",sans-serif;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,"Courier New",monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.6}
+.num,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+:focus{outline:none}
+:focus-visible{outline:4px solid var(--warn);outline-offset:2px}
+
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:none}
+.blk{display:inline-flex;align-items:center;justify-content:center;gap:var(--s2);
+  min-height:46px;padding:8px 16px;background:var(--card);color:var(--ink);
+  border:var(--bw) solid var(--line);border-radius:3px;
+  box-shadow:var(--sh) var(--sh) 0 0 var(--line);font-weight:700;font-size:17px}
+.blk:active{transform:translate(var(--sh),var(--sh));box-shadow:none}
+.blk.go{background:var(--ok)} .blk.hot{background:var(--no)} .blk.mark{background:var(--warn)}
+.blk.dark{background:var(--ink);color:#fff} .blk.blue{background:var(--info)}
+.blk.sm{min-height:40px;padding:4px 10px;font-size:15px;box-shadow:4px 4px 0 0 var(--line)}
+.blk.sm:active{transform:translate(4px,4px)}
+input,select,textarea{font:inherit;color:inherit;background:#fff;
+  border:2px solid var(--line);border-radius:3px;padding:6px 10px;min-height:42px}
+textarea{min-height:120px;line-height:1.5;width:100%}
+label{font-weight:700}
+input.cell{border:1px solid var(--hair);min-height:36px;width:100%;padding:4px 8px}
+input.cell:focus{border:2px solid var(--line)}
+
+/* 頂欄 */
+#top{position:sticky;top:0;z-index:30;background:var(--ink);color:#fff;
+  border-bottom:var(--bw) solid var(--line);display:flex;flex-wrap:wrap;
+  align-items:center;gap:var(--s3);padding:10px var(--s4)}
+#top .ttl{font-size:21px;font-weight:700}
+#top .sub{font-size:13px;color:#c9c4bb}
+#savedAt{font-size:13px;color:var(--warn);font-weight:700;margin-left:auto}
+.statrow{display:flex;gap:var(--s2);flex-wrap:wrap}
+.stat{background:#fff;color:var(--ink);border:var(--bw) solid var(--line);border-radius:3px;
+  padding:2px 12px;min-width:86px;text-align:center}
+.stat b{display:block;font-family:var(--mono);font-size:26px;line-height:1.15}
+.stat span{display:block;font-size:12px;font-weight:700}
+.stat.hi{background:var(--ok)} .stat.rate{background:var(--info)}
+
+/* 分頁 */
+#tabs{display:flex;gap:var(--s2);flex-wrap:wrap;padding:var(--s3) var(--s4) 0}
+.tab{min-height:50px;padding:6px 18px;font-size:18px;font-weight:700;background:var(--card);
+  border:var(--bw) solid var(--line);border-radius:3px 3px 0 0;
+  box-shadow:var(--sh) var(--sh) 0 0 var(--line)}
+.tab:active{transform:translate(var(--sh),var(--sh));box-shadow:none}
+.tab[aria-selected="true"]{background:var(--warn);transform:translate(var(--sh),var(--sh));box-shadow:none}
+main{padding:var(--s4);padding-top:var(--s3);max-width:1400px}
+section[data-page]{display:none}
+section[data-page].on{display:block}
+h2{font-size:25px;font-weight:700;margin-bottom:var(--s2)}
+h3{font-size:19px;font-weight:700;margin-bottom:var(--s2)}
+.panel{background:var(--card);border:2px solid var(--hair);border-radius:3px;
+  padding:var(--s3);margin-bottom:var(--s4)}
+.panel.acc{border:var(--bw) solid var(--line);box-shadow:var(--sh) var(--sh) 0 0 var(--line)}
+.rowwrap{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center}
+.hint{font-size:14px;color:var(--muted)}
+.alertbox{background:#fff3f3;border:var(--bw) solid var(--no);border-radius:3px;
+  padding:var(--s2) var(--s3);margin-bottom:var(--s3);font-weight:700}
+.okbox{background:#eefbf4;border:var(--bw) solid var(--ok);border-radius:3px;
+  padding:var(--s2) var(--s3);margin-bottom:var(--s3);font-weight:700}
+
+/* 資料表格 */
+table.data{width:100%;border-collapse:collapse;background:#fff}
+table.data th{background:var(--ink);color:#fff;font-size:15px;padding:8px 10px;text-align:left;white-space:nowrap}
+table.data td{border-bottom:1px solid var(--hair);padding:6px 10px;vertical-align:middle}
+table.data tr:nth-child(even) td{background:#fbfaf6}
+.tag{display:inline-block;border:2px solid var(--line);border-radius:2px;padding:0 8px;
+  font-size:14px;font-weight:700;background:#fff}
+.tag.p{background:var(--ok)} .tag.a{background:var(--no);color:#fff} .tag.l{background:var(--warn)}
+
+/* 儀表板百分比卡 */
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--s3)}
+.kpi{background:#fff;border:var(--bw) solid var(--line);border-radius:3px;
+  box-shadow:var(--sh) var(--sh) 0 0 var(--line);padding:var(--s3)}
+.kpi .pct{font-family:var(--mono);font-size:40px;font-weight:700;line-height:1.1}
+.kpi .lbl{font-size:14px;font-weight:700}
+.kpi .src{font-size:12.5px;color:var(--muted)}
+.kpi.na .pct{color:#bbb}
+
+/* 出席切換鈕 */
+.attbtn{min-width:64px;min-height:40px;border:2px solid var(--line);border-radius:3px;
+  font-weight:700;font-size:15px;background:#fff}
+.attbtn.p{background:var(--ok)} .attbtn.a{background:var(--no);color:#fff} .attbtn.l{background:var(--warn)}
+
+/* 列印 */
+#printArea{display:none}
+@media print{
+  body>*{display:none !important}
+  body>#printArea{display:block !important}
+  #printArea{font-size:12pt;color:#000}
+  #printArea h1{font-size:16pt;text-align:center;margin-bottom:4pt}
+  #printArea .phead{text-align:center;font-size:11pt;margin-bottom:10pt}
+  #printArea table{width:100%;border-collapse:collapse;page-break-inside:auto}
+  #printArea th,#printArea td{border:1px solid #000;padding:4pt 6pt;font-size:11pt}
+  #printArea th{background:#eee}
+  #printArea .pfoot{margin-top:10pt;font-size:11pt}
+  #printArea .sig{margin-top:18pt;display:flex;justify-content:space-around;font-size:12pt}
+  #printArea .fbq{border:1px solid #000;padding:8pt;margin-bottom:8pt}
+}
+@media (max-width:760px){
+  main{padding:var(--s3)}
+  .kpi .pct{font-size:32px}
+}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <div>
+    <div class="ttl">仰望科學社團管理系統</div>
+    <div class="sub">財團法人仰望教育基金會 × 國立東華大學｜國中小科學社團扶助計畫｜<a href="../prompts.html" style="color:#ffd23f;font-weight:700">提示詞卡①–⑤</a>｜<a href="../making-of.html" style="color:#ffd23f;font-weight:700">怎麼做的</a>｜<a href="../practice.html" style="color:#ffd23f;font-weight:700">自造場</a></div>
+  </div>
+  <div class="statrow">
+    <div class="stat"><b id="stN" class="num">0</b><span>社團學生</span></div>
+    <div class="stat rate"><b id="stAtt" class="num">–</b><span>累計出席率</span></div>
+    <div class="stat hi"><b id="stWk" class="num">0</b><span>已上課週數</span></div>
+  </div>
+  <div id="savedAt">尚未存檔</div>
+</div>
+
+<nav id="tabs" role="tablist">
+  <button class="tab" role="tab" data-tab="dash" aria-selected="true">總覽</button>
+  <button class="tab" role="tab" data-tab="roster" aria-selected="false">學生名單</button>
+  <button class="tab" role="tab" data-tab="plan" aria-selected="false">課程規劃表</button>
+  <button class="tab" role="tab" data-tab="log" aria-selected="false">教室日誌</button>
+  <button class="tab" role="tab" data-tab="fb" aria-selected="false">學生回饋單</button>
+  <button class="tab" role="tab" data-tab="exp" aria-selected="false">經費核銷</button>
+  <button class="tab" role="tab" data-tab="bak" aria-selected="false">備份與設定</button>
+</nav>
+
+<main>
+
+<!-- ================= 總覽 ================= -->
+<section data-page="dash" class="on">
+  <div class="panel acc">
+    <h2>基本資料（成果報告書・壹）</h2>
+    <div class="rowwrap">
+      <label>學校：
+        <select id="setSchool"></select>
+      </label>
+      <input id="setSchoolOther" placeholder="其他學校名稱" style="display:none">
+      <label>社團名稱：<input id="setClub" placeholder="例：科學探究社"></label>
+      <label>指導老師：<input id="setT1" placeholder="老師 1" style="width:120px"></label>
+      <input id="setT2" placeholder="老師 2" style="width:120px">
+      <label>學年度：<input id="setYear" value="115" style="width:80px"></label>
+      <label>總週數：<input id="setWeeks" type="number" min="1" max="60" style="width:80px"></label>
+    </div>
+    <p class="hint" style="margin-top:8px">核銷實務（學校主計室會看的地方）：官方範本以 24 週編排，實際週次依各校；每週通常至少 2 小時。社團人數、年級範圍送件前以基金會窗口為準。週次或時數不同的學校（例：28 週、每週 3 小時），改「總週數」與課程規劃表的「時數」欄即可。</p>
+  </div>
+
+  <div class="panel acc">
+    <h2>效益達成情形（成果報告書・肆）— 七個百分比</h2>
+    <p class="hint" style="margin-bottom:12px">①–④ 來自「學生回饋單」分頁、⑤ 來自「教室日誌」自動計算、⑥⑦ 由老師自評（下方直接填）。<b>回饋單不是期末才想的附件——它是 ①–④ 唯一的來源，學期初就要準備好，期末發下去、當場收回。</b></p>
+    <div class="kpis" id="kpiGrid"></div>
+    <div class="rowwrap" style="margin-top:16px">
+      <label>⑥ 課程延伸應用到正式自然課的比例：<input id="selfQ6" type="number" min="0" max="100" style="width:90px"> %</label>
+      <label>⑦ 老師覺得對專業有實質幫助的比例：<input id="selfQ7" type="number" min="0" max="100" style="width:90px"> %</label>
+      <button class="blk mark" id="btnPrintKpi">列印成果報告書素材頁</button>
+    </div>
+  </div>
+
+  <div class="panel acc">
+    <h2>文件繳交追蹤（期末結案要交的東西）</h2>
+    <p class="hint" style="margin-bottom:8px">「檔案上傳」可放每一項的成品或佐證（每項最多 50 個檔案）。附件存在<b>這台電腦的瀏覽器</b>裡，不會跟著 .json 備份或隨身版 HTML 走——要交件請用「成果報告書」列的<b>列印成果報告書（Word）</b>，會把上傳的照片與檔案清單一併編進報告。</p>
+    <div style="overflow-x:auto"><table class="data" id="docTable"></table></div>
+  </div>
+
+  <div class="panel">
+    <h3>⚠️ 三個核銷地雷</h3>
+    <ol style="padding-left:24px">
+      <li>同一張請購單，<b>2026 年 9–12 月</b>和 <b>2027 年 1–6 月</b>要分開填。</li>
+      <li><b>鐘點費</b>認列「實際上課日期」，不是請購日期。</li>
+      <li><b>材料費</b>認列「發票上的日期」，不是請購日期；份數要和教室日誌「出席學生數＋2 位老師」相符。</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ================= 名單 ================= -->
+<section data-page="roster">
+  <div class="panel acc">
+    <h2>貼上匯入名單（官方附件一）</h2>
+    <p class="hint">從 Excel 或任何表格複製整批貼上，每行一位學生。支援「座號 班級 姓名」「班級 姓名」「姓名」三種格式（用 Tab、逗號或空白分隔都可以）。</p>
+    <textarea id="impBox" placeholder="例：&#10;01&#9;三年甲班&#9;王小明&#10;02&#9;三年甲班&#9;李小華"></textarea>
+    <div class="rowwrap" style="margin-top:8px">
+      <button class="blk go" id="btnImport">貼上匯入</button>
+      <button class="blk sm" id="btnAddOne">＋手動加一位</button>
+      <button class="blk sm mark" id="btnPrintRoster">列印學生名單（附件一）</button>
+      <button class="blk sm" id="btnCsvRoster">匯出名單 CSV</button>
+      <span class="hint" id="impMsg"></span>
+    </div>
+  </div>
+  <div class="panel">
+    <h3>目前名單（<span id="rosterN">0</span> 人）</h3>
+    <table class="data" id="rosterTable"></table>
+  </div>
+</section>
+
+<!-- ================= 課程規劃表 ================= -->
+<section data-page="plan">
+  <div class="panel acc">
+    <h2>24 週課程規劃表（成果報告書・貳）</h2>
+    <div class="rowwrap" style="margin-bottom:8px">
+      <button class="blk mark" id="btnPrintPlan">列印課程規劃表</button>
+      <button class="blk sm" id="btnPrintHours">列印時數表（鐘點費核銷用）</button>
+      <button class="blk sm" id="btnCsvPlan">匯出 CSV</button>
+      <span class="hint">直接在表格內修改，自動儲存。每週至少 2 小時。</span>
+    </div>
+    <div style="overflow-x:auto"><table class="data" id="planTable"></table></div>
+  </div>
+</section>
+
+<!-- ================= 教室日誌 ================= -->
+<section data-page="log">
+  <div class="panel acc">
+    <h2>教室日誌・出席點名（官方附件二｜核銷憑據）</h2>
+    <div class="rowwrap" style="margin-bottom:12px">
+      <label>週次：<select id="logWeek"></select></label>
+      <span id="logTopic" class="hint"></span>
+      <button class="blk sm go" id="btnAllP">全到</button>
+      <button class="blk sm hot" id="btnClearWeek">清除本週</button>
+      <button class="blk mark" id="btnPrintSign">列印空白簽到表</button>
+      <button class="blk sm" id="btnPrintLog">列印本週日誌</button>
+      <button class="blk sm" id="btnCsvAtt">匯出出席 CSV</button>
+    </div>
+    <div id="logSummary" class="okbox"></div>
+    <table class="data" id="logTable"></table>
+    <p class="hint" style="margin-top:8px">進到每一週時已預設「全到」——先按『全到』（或直接用預設），再把沒來的點成缺席／請假即可。出席率＝出席人數 ÷ 總報名人數（請假、缺席都計入分母，不算出席）；材料費份數＝出席學生數＋實際授課教師人數（讀「總覽」基本資料實填的指導老師數，未填時暫以 2 位計）。誤入沒上課的週次，按「清除本週」即可移除該週點名紀錄。</p>
+  </div>
+  <div class="panel acc">
+    <h2>本週課程紀錄（成果報告書・參 的素材）</h2>
+    <p class="hint" style="margin-bottom:8px">每週上完課花一分鐘：一段文字說明＋這週選出的照片「檔名」與圖說。照片本身留在你的電腦或雲端相簿，這裡只記檔名對照——期末列印出來就是「參・課程紀錄」的初稿。</p>
+    <div class="rowwrap" style="margin-bottom:8px">
+      <button class="blk mark" id="btnPrintRec">列印課程紀錄（參）</button>
+    </div>
+    <label>文字說明：</label>
+    <textarea id="recText" style="min-height:80px" placeholder="這週做了什麼、學生的反應、有沒有失敗或意外（失敗是加分題）"></textarea>
+    <div class="rowwrap" style="margin-top:8px">
+      <label>照片檔名：<input id="recPhoto" placeholder="例：IMG_0912.jpg、IMG_0918.jpg" style="width:280px"></label>
+      <label>圖說：<input id="recCap" placeholder="例：圖 3　學生觀察種子發芽（2026/9/23，自然教室）" style="width:360px"></label>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 回饋單 ================= -->
+<section data-page="fb">
+  <div class="panel acc">
+    <h2>學生回饋單（官方附件三｜①–④ 百分比的唯一來源）</h2>
+    <div class="rowwrap" style="margin-bottom:12px">
+      <button class="blk mark" id="btnPrintFb">列印空白回饋單（發給學生）</button>
+      <label>回收份數（實際收回的份數）：<input id="fbN" type="number" min="0" style="width:90px"></label>
+      <span id="fbRate" class="hint"></span>
+    </div>
+    <p class="hint" style="margin-bottom:12px">回饋單收回來後，把每一題各選項的「人數」填進來，百分比自動計算（很同意＋同意 ÷ 回收份數）。</p>
+    <table class="data" id="fbTable"></table>
+    <div style="margin-top:14px">
+      <label>第 5 題（開放作答）彙整——「這學期我最喜歡的一堂課」：</label>
+      <textarea id="fbOpen" placeholder="把學生寫的答案抄或摘錄進來，期末寫「伍・結論與建議」直接取材"></textarea>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 經費核銷 ================= -->
+<section data-page="exp">
+  <div class="panel acc">
+    <h2>經費核銷登記（鐘點費・導師費・材料費・餐費）</h2>
+    <p class="hint" style="margin-bottom:8px;color:#B43B3B;font-weight:700">身分證字號、戶籍住址、匯款帳號——這三樣不貼進任何 AI，也不放雲端，只在學校的紙本表上寫。AI 幫你算的是時數、份數、金額，不碰身分資料。</p>
+    <div class="rowwrap" style="margin-bottom:8px">
+      <select id="expCat"></select>
+      <input id="expDate" type="date" title="認列日期（材料費＝發票日期；鐘點費＝上課日期）">
+      <input id="expItem" placeholder="品項／說明" style="width:220px">
+      <input id="expAmt" type="number" min="0" placeholder="金額" style="width:110px">
+      <input id="expQty" type="number" min="0" placeholder="份數" style="width:90px">
+      <select id="expWeek"></select>
+      <button class="blk go" id="btnExpAdd">登記</button>
+      <button class="blk sm" id="btnCsvExp">匯出 CSV</button>
+    </div>
+    <div id="expTotals" class="rowwrap" style="margin-bottom:12px"></div>
+    <div style="overflow-x:auto"><table class="data" id="expTable"></table></div>
+  </div>
+  <div class="panel acc">
+    <h2>材料費對帳（份數 vs 出席＋實際授課教師數）</h2>
+    <p class="hint" style="margin-bottom:8px">材料費核算公式：（上課人數＋實際授課教師人數）× 主題 × 250 元。教師人數讀「總覽」基本資料實填的指導老師數（未填時暫以 2 位計）。<b>材料費、餐費、茶水費的發票／收據，需開立基金會統編：82339563 財團法人仰望教育基金會。</b></p>
+    <div style="overflow-x:auto"><table class="data" id="reconTable"></table></div>
+  </div>
+</section>
+
+<!-- ================= 備份 ================= -->
+<section data-page="bak">
+  <div class="panel acc">
+    <h2>備份與還原</h2>
+    <p class="hint" style="margin-bottom:12px">所有資料只存在<b>這台電腦的這個瀏覽器</b>裡。請養成習慣：每次上完課點一次「匯出備份」。<b style="color:#B43B3B">.json 備份裡有整班學生姓名——存學校配發的隨身碟或校內雲端，不要放個人雲端、不要用 LINE 或 email 傳。</b>換電腦時用「匯入備份」還原。電腦要送修、要還、要借人之前：先按「匯出備份」把 .json 存好，再按「清除全部資料」——光刪 HTML 檔沒用，名單存在瀏覽器裡，不會跟著檔案走。</p>
+    <div class="rowwrap">
+      <button class="blk go" id="btnPortable">下載隨身版 HTML（含目前資料）</button>
+      <button class="blk go" id="btnExport">匯出備份（.json）</button>
+      <button class="blk blue" id="btnImportBak">匯入備份</button>
+      <input type="file" id="bakFile" accept=".json" style="display:none">
+      <button class="blk sm" id="btnSample">載入示範資料</button>
+      <button class="blk hot sm" id="btnWipe">清除全部資料</button>
+    </div>
+    <p class="hint" style="margin-top:8px"><b>要帶著資料走（隨身碟、換電腦）最保險的做法：</b>按「下載隨身版 HTML」，存出來的檔案雙擊打開，資料就在裡面，繼續編輯即可。用瀏覽器 Ctrl+S 也可以，但存檔類型要選「<b>網頁，完整</b>」（選「僅 HTML」資料不會跟著走）。</p>
+  </div>
+  <div class="panel">
+    <h3>關於本系統</h3>
+    <p>單一 HTML 檔案，雙擊即開；不需安裝、不需帳號、沒有網路也能用。資料透過瀏覽器 localStorage 儲存在本機。<br>
+    提示詞卡①–⑤（可一鍵複製）：<a href="../prompts.html">prompts.html</a><br>
+    這套系統是怎麼做出來的：<a href="../making-of.html">making-of.html</a>｜想自己做一份（有引導、可上傳驗收）：<a href="../practice.html">practice.html</a><br>
+    版本 1.0（2026/08）｜「國中小科學社團扶助計畫」花蓮地區科學社團教師研習 配套工具</p>
+  </div>
+</section>
+
+</main>
+
+<div id="printArea"></div>
+
+<!-- 內嵌資料節點：每次自動存檔會把整包資料同步寫進來。
+     這樣用 Ctrl+S（網頁，完整）或「下載隨身版」存出去的檔案，
+     換一台電腦、換一個資料夾打開，資料都還在。 -->
+<script type="application/json" id="bootState">null</script>
+
+<script>
+"use strict";
+/* ============================ 資料 ============================ */
+var STORE_KEY = "yw-club-mgr-v1-s04";
+var PRESET_SCHOOL = "花蓮縣立國風國民中學"; // 各校專屬版會在這裡預填校名
+var SCHOOLS = [
+  "花蓮縣立北昌國民小學","花蓮縣立秀林國民中學","花蓮縣立美崙國民中學","花蓮縣立國風國民中學",
+  "花蓮縣光復鄉大興國民小學","花蓮縣秀林鄉佳民國民小學","花蓮縣壽豐鄉豐山國民小學","花蓮縣壽豐鄉豐裡國民小學",
+  "花蓮縣秀林鄉西寶國民小學"
+];
+var DOCS = [
+  ["plan","課程規劃表（貳）","「課程規劃表」分頁完成後列印"],
+  ["roster","學生名單（附件一）","「學生名單」分頁列印或匯出 CSV"],
+  ["lesson","單元教案","每單元一份，可用 AI 依規劃表產出"],
+  ["sign","社團課簽到表（附件二）","「教室日誌」分頁每週列印"],
+  ["fb","學生回饋單（附件三）","「學生回饋單」分頁列印發放，期末統計"],
+  ["rec","課程紀錄（參）","「教室日誌」分頁逐週填文字說明與照片檔名，列印即初稿"],
+  ["obs","觀課紀錄表","觀課後填寫"],
+  ["expert","專家聯絡單","邀請專家前填寫"],
+  ["demo","專家教學演示紀錄表","專家到校演示當日填寫"],
+  ["visit","教授訪視觀課指導紀錄表","教授訪視當日填寫"],
+  ["reimb","校內核銷表格（鐘點費/導師費/材料費/餐費）","「經費核銷」分頁登記後套用校內格式"],
+  ["final","成果報告書","期末彙整，本系統各分頁即為素材"]
+];
+var FBQ = [
+  ["q1","參加社團以後，我更想知道科學的「為什麼」","① 興趣提升"],
+  ["q2","上課的時候，我會專心聽，也會跟大家一起討論","② 專心參與"],
+  ["q3","做實驗的時候，我會照安全規則做，可以自己完成，或老師稍微提醒一下就能完成","③ 獨立操作（含低度協助）"],
+  ["q4","我可以跟別人說明我們的實驗在做什麼，或介紹我做出來的成果","④ 能說明實驗或展示成果"]
+];
+var FBOPT = ["很同意","同意","普通","不同意"];
+var EXP_CATS = ["材料費","鐘點費","導師費","餐費","教學演示費","指導出席費","交通費","住宿費"];
+
+function blankState(){
+  var plan = [];
+  for (var i=1;i<=24;i++) plan.push({week:i,date:"",topic:"",teacher:"",note:"",hours:2});
+  var docs = {};
+  DOCS.forEach(function(d){ docs[d[0]] = {st:"todo",note:""}; });
+  var fb = {n:0, open:""};
+  FBQ.forEach(function(q){ fb[q[0]] = [0,0,0,0]; });
+  return { ver:1, school:PRESET_SCHOOL, schoolOther:"", club:"", t1:"", t2:"", year:"115",
+    students:[], plan:plan, logs:{}, fb:fb, selfQ6:"", selfQ7:"", exp:[], docs:docs };
+}
+var S = blankState();
+
+/* ============================ 小工具 ============================ */
+function $(s,r){ return (r||document).querySelector(s); }
+function $$(s,r){ return Array.prototype.slice.call((r||document).querySelectorAll(s)); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function uid(){ return "s"+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function schoolName(){ return S.school==="其他" ? (S.schoolOther||"（未填學校）") : (S.school||"（未填學校）"); }
+function teacherCount(){
+  // P1-12：材料費的教師人數讀「基本資料」實填的指導老師數；未填時暫以 2 位計
+  var n = (S.t1 && S.t1.trim() ? 1 : 0) + (S.t2 && S.t2.trim() ? 1 : 0);
+  return n || 2;
+}
+
+function save(){
+  var json = JSON.stringify(S);
+  // 同步寫進頁面內嵌節點：Ctrl+S／下載隨身版存出去的檔案會帶著資料走
+  var bs = document.getElementById("bootState");
+  if(bs) bs.textContent = json.replace(/</g, "\\u003c");
+  try{
+    localStorage.setItem(STORE_KEY, json);
+    $("#savedAt").textContent = "已自動存檔 " + new Date().toLocaleTimeString("zh-TW",{hour12:false});
+  }catch(e){
+    $("#savedAt").textContent = "⚠ 此瀏覽器封鎖了本機儲存——請改用「下載隨身版 HTML」保存資料";
+  }
+}
+function normalize(o){
+  // 把任何來源（localStorage、備份檔）的資料補齊成完整結構；版本升級時不會壞資料
+  var b = blankState();
+  Object.keys(b).forEach(function(k){ if(o[k]!==undefined) b[k]=o[k]; });
+  if(!Array.isArray(b.plan) || !b.plan.length){ b.plan = blankState().plan; }
+  b.plan.forEach(function(p,i){
+    p.week = i+1;
+    if(p.hours===undefined || p.hours==="") p.hours = 2;
+    ["date","topic","teacher","note"].forEach(function(k){ if(p[k]===undefined) p[k]=""; });
+  });
+  DOCS.forEach(function(d){ if(!b.docs[d[0]]) b.docs[d[0]]={st:"todo",note:""}; });
+  FBQ.forEach(function(q){ if(!b.fb[q[0]]) b.fb[q[0]]=[0,0,0,0]; });
+  if(!b.fb.n) b.fb.n = b.fb.n||0;
+  if(!Array.isArray(b.students)) b.students = [];
+  if(!b.logs || typeof b.logs!=="object") b.logs = {};
+  if(!Array.isArray(b.exp)) b.exp = [];
+  return b;
+}
+function load(){
+  var raw = null;
+  try{ raw = localStorage.getItem(STORE_KEY); }catch(e){}
+  if(raw){
+    try{ S = normalize(JSON.parse(raw)); return; }catch(e){}
+  }
+  // 這個瀏覽器位置沒有既有資料 → 讀頁面內嵌的資料節點（Ctrl+S／隨身版帶來的）
+  try{
+    var bs = document.getElementById("bootState");
+    var o = bs ? JSON.parse(bs.textContent) : null;
+    if(o && Array.isArray(o.students)){
+      S = normalize(o);
+      save();   // 落地到這個位置的儲存空間，之後的編輯就存在這裡
+    }
+  }catch(e){}
+}
+
+/* ============================ 統計 ============================ */
+function weekAtt(w){ // 回傳 {p,a,l,marked} 該週點名結果
+  var log = S.logs[w]; var r = {p:0,a:0,l:0,marked:false};
+  if(!log || !log.att) return r;
+  S.students.forEach(function(st){
+    var v = log.att[st.id];
+    if(v==="p"){r.p++; r.marked=true;}
+    else if(v==="a"){r.a++; r.marked=true;}
+    else if(v==="l"){r.l++; r.marked=true;}
+  });
+  return r;
+}
+function attRate(){ // 累計出席率：Σ出席 / Σ(名單數-請假? ) → 官方口徑用 出席/應到（含缺席、不含請假仍算應到）
+  var num=0, den=0, weeks=0;
+  for(var w=1;w<=S.plan.length;w++){
+    var r = weekAtt(w);
+    if(r.marked){ num += r.p; den += S.students.length; weeks++; }
+  }
+  return {rate: den>0 ? Math.round(num/den*100) : null, weeks:weeks};
+}
+function fbSum(qk){
+  var arr = S.fb[qk]||[0,0,0,0];
+  return Number(arr[0])+Number(arr[1])+Number(arr[2])+Number(arr[3]);
+}
+function fbPct(qk){
+  var n = Number(S.fb.n)||0; if(n<=0) return null;
+  if(fbSum(qk) > n) return null;   // 合計超過回收份數：數字有問題，不給值
+  var arr = S.fb[qk]||[0,0,0,0];
+  return Math.round((Number(arr[0])+Number(arr[1]))/n*100);
+}
+
+/* ============================ 頂欄 / 分頁 ============================ */
+function renderTop(){
+  $("#stN").textContent = S.students.length;
+  var a = attRate();
+  $("#stAtt").textContent = a.rate===null ? "–" : a.rate+"%";
+  $("#stWk").textContent = a.weeks;
+}
+$$("#tabs .tab").forEach(function(t){
+  t.addEventListener("click",function(){
+    $$("#tabs .tab").forEach(function(x){ x.setAttribute("aria-selected","false"); });
+    t.setAttribute("aria-selected","true");
+    $$("main section[data-page]").forEach(function(sec){ sec.classList.remove("on"); });
+    $('[data-page="'+t.dataset.tab+'"]').classList.add("on");
+    renderAll();
+  });
+});
+
+/* ============================ 總覽 ============================ */
+function renderSettings(){
+  var sel = $("#setSchool");
+  if(!sel.options.length){
+    SCHOOLS.concat(["其他"]).forEach(function(n){
+      var o = document.createElement("option"); o.textContent=n; o.value=n; sel.appendChild(o);
+    });
+    var blank = document.createElement("option"); blank.value=""; blank.textContent="（請選擇學校）";
+    sel.insertBefore(blank, sel.firstChild);
+  }
+  sel.value = S.school||"";
+  $("#setSchoolOther").style.display = S.school==="其他" ? "" : "none";
+  $("#setSchoolOther").value = S.schoolOther||"";
+  $("#setClub").value=S.club; $("#setT1").value=S.t1; $("#setT2").value=S.t2; $("#setYear").value=S.year;
+  $("#setWeeks").value = S.plan.length;
+  $("#selfQ6").value=S.selfQ6; $("#selfQ7").value=S.selfQ7;
+}
+// P1-15：總週數可調——加週直接補列；減週前檢查要被移除的週有沒有資料
+function adjustWeeks(n){
+  n = Math.max(1, Math.min(60, Math.floor(Number(n)||0)));
+  if(!n || n === S.plan.length){ $("#setWeeks").value = S.plan.length; return; }
+  while(S.plan.length < n){
+    S.plan.push({week:S.plan.length+1,date:"",topic:"",teacher:"",note:"",hours:2});
+  }
+  if(n < S.plan.length){
+    for(var w = n+1; w <= S.plan.length; w++){
+      var p = S.plan[w-1] || {};
+      var hasPlan = (p.topic||p.date||p.teacher||p.note);
+      var hasLog = S.logs[w] && S.logs[w].att && Object.keys(S.logs[w].att).length;
+      var hasExp = S.exp.some(function(x){ return Number(x.week)===w; });
+      if(hasPlan || hasLog || hasExp){
+        alert("第 "+w+" 週已有課程、點名或核銷資料，先清掉才能把總週數縮到 "+n+"。");
+        $("#setWeeks").value = S.plan.length;
+        return;
+      }
+    }
+    S.plan = S.plan.slice(0, n);
+  }
+  save(); renderAll();
+}
+[["setSchool","school"],["setSchoolOther","schoolOther"],["setClub","club"],
+ ["setT1","t1"],["setT2","t2"],["setYear","year"],["selfQ6","selfQ6"],["selfQ7","selfQ7"]]
+.forEach(function(pair){
+  document.addEventListener("change",function(e){
+    if(e.target.id!==pair[0]) return;
+    S[pair[1]] = e.target.value;
+    if(pair[0]==="setSchool") $("#setSchoolOther").style.display = S.school==="其他" ? "" : "none";
+    save(); renderDash(); renderTop();
+  });
+});
+document.addEventListener("change",function(e){
+  if(e.target.id==="setWeeks") adjustWeeks(e.target.value);
+});
+
+function renderDash(){
+  var a = attRate();
+  var kpis = [
+    {no:"①",lbl:"學生對科學探索的興趣提升",v:fbPct("q1"),src:"回饋單第 1 題"},
+    {no:"②",lbl:"學生上課專心、能參與討論",v:fbPct("q2"),src:"回饋單第 2 題"},
+    {no:"③",lbl:"學生能自己完成實驗操作",v:fbPct("q3"),src:"回饋單第 3 題"},
+    {no:"④",lbl:"學生能向別人說明實驗",v:fbPct("q4"),src:"回饋單第 4 題"},
+    {no:"⑤",lbl:"社團整體出席率",v:a.rate,src:"教室日誌自動計算（"+a.weeks+" 週）"},
+    {no:"⑥",lbl:"課程延伸應用到正式自然課",v:S.selfQ6===""?null:Number(S.selfQ6),src:"老師自評"},
+    {no:"⑦",lbl:"老師覺得對專業有實質幫助",v:S.selfQ7===""?null:Number(S.selfQ7),src:"老師自評"}
+  ];
+  $("#kpiGrid").innerHTML = kpis.map(function(k){
+    var has = k.v!==null && !isNaN(k.v);
+    return '<div class="kpi'+(has?"":" na")+'"><div class="pct">'+(has?k.v+"%":"—")+'</div>'+
+      '<div class="lbl">'+k.no+" "+esc(k.lbl)+'</div><div class="src">'+esc(k.src)+'</div></div>';
+  }).join("");
+
+  var rows = '<tr><th>結案文件</th><th style="width:300px">檔案上傳</th><th style="width:130px">狀態</th><th>備註／提示</th></tr>';
+  DOCS.forEach(function(d){
+    var st = S.docs[d[0]].st;
+    rows += '<tr><td><b>'+esc(d[1])+'</b><div class="hint">'+esc(d[2])+'</div>'+
+      (d[0]==="final" ? '<div style="margin-top:6px"><button class="blk sm mark" id="btnWordReport">列印成果報告書（Word）</button></div>' : '')+
+      '</td>'+
+      '<td><label class="blk sm" style="cursor:pointer">＋上傳檔案'+
+        '<input type="file" multiple style="display:none" data-updoc="'+d[0]+'"></label>'+
+        '<div class="uplist hint" data-uplist="'+d[0]+'" style="margin-top:4px">（讀取中…）</div></td>'+
+      '<td><select data-doc="'+d[0]+'">'+
+        ['todo','doing','done'].map(function(v){
+          var lbl = {todo:"未開始",doing:"進行中",done:"✔ 已完成"}[v];
+          return '<option value="'+v+'"'+(st===v?" selected":"")+'>'+lbl+'</option>';
+        }).join("")+'</select></td>'+
+      '<td><input class="cell" data-docnote="'+d[0]+'" value="'+esc(S.docs[d[0]].note)+'" placeholder="備註"></td></tr>';
+  });
+  $("#docTable").innerHTML = rows;
+  renderUploads();
+}
+
+/* ============================ 檔案上傳（IndexedDB，每項上限 50） ============================ */
+var UP_MAX = 50;
+var FDB = null;
+function fdb(cb){
+  if(FDB){ cb(FDB); return; }
+  if(!window.indexedDB){ cb(null); return; }
+  var req = indexedDB.open("yw-files-" + STORE_KEY, 1);
+  req.onupgradeneeded = function(e){
+    var db = e.target.result;
+    var st = db.createObjectStore("files", {keyPath:"id", autoIncrement:true});
+    st.createIndex("doc","doc",{unique:false});
+  };
+  req.onsuccess = function(e){ FDB = e.target.result; cb(FDB); };
+  req.onerror = function(){ cb(null); };
+}
+function fdbList(docKey, cb){
+  fdb(function(db){
+    if(!db){ cb([]); return; }
+    var out = [];
+    var tx = db.transaction("files","readonly").objectStore("files").index("doc").openCursor(IDBKeyRange.only(docKey));
+    tx.onsuccess = function(e){
+      var c = e.target.result;
+      if(c){ out.push(c.value); c.continue(); } else cb(out);
+    };
+    tx.onerror = function(){ cb(out); };
+  });
+}
+function fdbListAll(cb){
+  fdb(function(db){
+    if(!db){ cb([]); return; }
+    var out = [];
+    var tx = db.transaction("files","readonly").objectStore("files").openCursor();
+    tx.onsuccess = function(e){
+      var c = e.target.result;
+      if(c){ out.push(c.value); c.continue(); } else cb(out);
+    };
+    tx.onerror = function(){ cb(out); };
+  });
+}
+function fdbAddFiles(docKey, fileList, done){
+  fdbList(docKey, function(existing){
+    var room = UP_MAX - existing.length;
+    var files = Array.prototype.slice.call(fileList);
+    if(files.length > room){
+      alert("這一項最多 "+UP_MAX+" 個檔案，目前已有 "+existing.length+" 個——只會加入前 "+Math.max(room,0)+" 個。");
+      files = files.slice(0, Math.max(room,0));
+    }
+    if(!files.length){ done(); return; }
+    fdb(function(db){
+      if(!db){ alert("此瀏覽器無法使用檔案儲存（IndexedDB）。"); done(); return; }
+      var tx = db.transaction("files","readwrite");
+      var st = tx.objectStore("files");
+      files.forEach(function(f){
+        st.add({doc:docKey, name:f.name, type:f.type||"application/octet-stream", size:f.size, blob:f, ts:Date.now()});
+      });
+      tx.oncomplete = function(){ done(); };
+      tx.onerror = function(){ alert("檔案存入失敗（可能超過瀏覽器容量）。"); done(); };
+    });
+  });
+}
+function fmtSize(n){
+  if(n > 1048576) return (n/1048576).toFixed(1)+" MB";
+  if(n > 1024) return Math.round(n/1024)+" KB";
+  return n+" B";
+}
+function renderUploads(){
+  $$("[data-uplist]").forEach(function(box){
+    var key = box.dataset.uplist;
+    fdbList(key, function(files){
+      if(!files.length){ box.textContent = "尚未上傳（最多 "+UP_MAX+" 個）"; return; }
+      box.innerHTML = files.map(function(f){
+        return '<div>📎 <a href="#" data-fdl="'+f.id+'">'+esc(f.name)+'</a>'+
+          ' <span style="color:#999">('+fmtSize(f.size)+')</span>'+
+          ' <a href="#" data-fdel="'+f.id+'" data-fdeldoc="'+key+'" style="color:#B43B3B">✕</a></div>';
+      }).join("") + '<div style="color:#999">共 '+files.length+'／'+UP_MAX+' 個</div>';
+    });
+  });
+}
+document.addEventListener("change", function(e){
+  if(!e.target.dataset || !e.target.dataset.updoc) return;
+  var key = e.target.dataset.updoc;
+  fdbAddFiles(key, e.target.files, function(){ e.target.value = ""; renderUploads(); });
+});
+document.addEventListener("click", function(e){
+  var t = e.target;
+  if(t.dataset && t.dataset.fdl){
+    e.preventDefault();
+    fdb(function(db){
+      var rq = db.transaction("files","readonly").objectStore("files").get(Number(t.dataset.fdl));
+      rq.onsuccess = function(){
+        var rec = rq.result; if(!rec) return;
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(rec.blob); a.download = rec.name;
+        document.body.appendChild(a); a.click();
+        setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+      };
+    });
+    return;
+  }
+  if(t.dataset && t.dataset.fdel){
+    e.preventDefault();
+    if(!confirm("刪除這個上傳的檔案？")) return;
+    fdb(function(db){
+      var tx = db.transaction("files","readwrite");
+      tx.objectStore("files").delete(Number(t.dataset.fdel));
+      tx.oncomplete = function(){ renderUploads(); };
+    });
+  }
+});
+document.addEventListener("change",function(e){
+  if(e.target.dataset.doc){ S.docs[e.target.dataset.doc].st = e.target.value; save(); }
+  if(e.target.dataset.docnote){ S.docs[e.target.dataset.docnote].note = e.target.value; save(); }
+});
+
+/* ============================ 名單 ============================ */
+var ROSTER_HEADERS = ["座號","學號","編號","班級","姓名","名字","備註"];
+function parseRoster(text){
+  var out = []; var headerSkipped = false; var firstSeen = false;
+  text.split(/\r?\n/).forEach(function(line){
+    line = line.trim(); if(!line) return;
+    var parts = line.split(/\t|,|，|、/).map(function(x){return x.trim();}).filter(Boolean);
+    var bySpace = false;
+    if(parts.length===1){
+      parts = line.split(/\s+/).filter(Boolean);
+      bySpace = parts.length > 1;
+    }
+    // 擋掉 Excel 標題列：第一個非空白列若含表頭字樣（座號／班級／姓名…）就整列略過
+    if(!firstSeen){
+      firstSeen = true;
+      var hits = parts.filter(function(p){ return ROSTER_HEADERS.indexOf(p) >= 0; }).length;
+      if(hits >= 1){ headerSkipped = true; return; }
+    }
+    var seat="",klass="",name="";
+    if(bySpace){
+      // 用空白切出來的：座號取開頭數字，其餘全部併回姓名（族語並列、羅馬拼音姓名中間就是空白）
+      var rest = parts;
+      if(/^\d+$/.test(rest[0])){ seat = rest[0]; rest = rest.slice(1); }
+      if(rest.length >= 2 && /班$/.test(rest[0])){ klass = rest[0]; rest = rest.slice(1); }
+      name = rest.join(" ");
+    } else if(parts.length>=3){ seat=parts[0]; klass=parts[1]; name=parts[2]; }
+    else if(parts.length===2){
+      if(/^\d+$/.test(parts[0])){ seat=parts[0]; name=parts[1]; }
+      else { klass=parts[0]; name=parts[1]; }
+    } else { name=parts[0]; }
+    if(name) out.push({id:uid(),seat:seat,klass:klass,name:name,note:""});
+  });
+  out.headerSkipped = headerSkipped;
+  return out;
+}
+$("#btnImport").addEventListener("click",function(){
+  var list = parseRoster($("#impBox").value);
+  if(!list.length){
+    $("#impMsg").textContent = list.headerSkipped
+      ? "只讀到標題列（已略過），沒有學生資料。"
+      : "沒讀到任何學生，請檢查貼上的內容。";
+    return;
+  }
+  var existing = {};
+  S.students.forEach(function(s){ existing[s.klass+"|"+s.name] = true; });
+  var added=0, skipped=0;
+  list.forEach(function(s){
+    if(existing[s.klass+"|"+s.name]){ skipped++; return; }
+    S.students.push(s); added++;
+  });
+  $("#impBox").value="";
+  $("#impMsg").textContent = "匯入 "+added+" 位"+(skipped?("，略過重複 "+skipped+" 位"):"")
+    +(list.headerSkipped?"（第 1 列看起來像標題列，已略過）":"")+"。";
+  save(); renderAll();
+});
+$("#btnAddOne").addEventListener("click",function(){
+  S.students.push({id:uid(),seat:"",klass:"",name:"新學生",note:""});
+  save(); renderRoster(); renderTop();
+});
+function renderRoster(){
+  $("#rosterN").textContent = S.students.length;
+  var h = '<tr><th style="width:80px">座號</th><th style="width:140px">班級</th><th>姓名</th><th>備註</th><th style="width:70px"></th></tr>';
+  S.students.forEach(function(s){
+    h += '<tr>'+
+      '<td><input class="cell num" data-st="'+s.id+'" data-f="seat" value="'+esc(s.seat)+'"></td>'+
+      '<td><input class="cell" data-st="'+s.id+'" data-f="klass" value="'+esc(s.klass)+'"></td>'+
+      '<td><input class="cell" data-st="'+s.id+'" data-f="name" value="'+esc(s.name)+'"></td>'+
+      '<td><input class="cell" data-st="'+s.id+'" data-f="note" value="'+esc(s.note)+'"></td>'+
+      '<td><button class="blk sm hot" data-del="'+s.id+'">刪</button></td></tr>';
+  });
+  $("#rosterTable").innerHTML = h;
+}
+document.addEventListener("change",function(e){
+  if(!e.target.dataset.st) return;
+  var st = S.students.find(function(x){return x.id===e.target.dataset.st;});
+  if(st){ st[e.target.dataset.f] = e.target.value; save(); }
+});
+document.addEventListener("click",function(e){
+  var id = e.target.dataset && e.target.dataset.del;
+  if(!id) return;
+  var st = S.students.find(function(x){return x.id===id;});
+  if(st && confirm("確定刪除「"+st.name+"」？其出席紀錄也會一併移除。")){
+    S.students = S.students.filter(function(x){return x.id!==id;});
+    Object.keys(S.logs).forEach(function(w){ if(S.logs[w].att) delete S.logs[w].att[id]; });
+    save(); renderAll();
+  }
+});
+
+/* ============================ 課程規劃 ============================ */
+function renderPlan(){
+  var h = '<tr><th style="width:64px">週次</th><th style="width:150px">日期</th><th>課程內容</th><th style="width:80px">時數</th><th style="width:130px">任課教師</th><th style="width:180px">備註</th></tr>';
+  S.plan.forEach(function(p,i){
+    h += '<tr><td class="num" style="text-align:center;font-weight:700">'+p.week+'</td>'+
+      '<td><input class="cell" type="date" data-pl="'+i+'" data-f="date" value="'+esc(p.date)+'"></td>'+
+      '<td><input class="cell" data-pl="'+i+'" data-f="topic" value="'+esc(p.topic)+'"></td>'+
+      '<td><input class="cell num" type="number" min="0" step="0.5" data-pl="'+i+'" data-f="hours" value="'+esc(p.hours===undefined?2:p.hours)+'"></td>'+
+      '<td><input class="cell" data-pl="'+i+'" data-f="teacher" value="'+esc(p.teacher)+'"></td>'+
+      '<td><input class="cell" data-pl="'+i+'" data-f="note" value="'+esc(p.note)+'"></td></tr>';
+  });
+  $("#planTable").innerHTML = h;
+}
+document.addEventListener("change",function(e){
+  if(e.target.dataset.pl===undefined || !e.target.dataset.f || e.target.dataset.st) return;
+  var i = Number(e.target.dataset.pl);
+  if(S.plan[i]){ S.plan[i][e.target.dataset.f] = e.target.value; save(); }
+});
+
+/* ============================ 教室日誌 ============================ */
+var curWeek = 1;
+var logSelWired = false;   // 用 JS 變數而非 DOM 屬性：Ctrl+S 快照會把 DOM 屬性一起存走，導致重開後監聽器掛不回去
+function renderLog(){
+  var sel = $("#logWeek");
+  if(!logSelWired){
+    logSelWired = true;
+    sel.addEventListener("change",function(){ curWeek=Number(sel.value); renderLog(); });
+  }
+  if(sel.options.length !== S.plan.length){
+    sel.innerHTML = "";
+    for(var w=1;w<=S.plan.length;w++){
+      var o=document.createElement("option"); o.value=w; o.textContent="第 "+w+" 週"; sel.appendChild(o);
+    }
+  }
+  if(curWeek > S.plan.length) curWeek = S.plan.length;
+  sel.value=curWeek;
+  var p = S.plan[curWeek-1]||{};
+  $("#logTopic").textContent = (p.date?p.date+"｜":"") + (p.topic||"（課程規劃表尚未填本週主題）");
+  var log = S.logs[curWeek] || (S.logs[curWeek]={att:{}});
+  if(!log.att) log.att={};
+  // P0-05：進到某一週時預設「全到」，老師只要改掉沒來的（清除過的週次除外）
+  if(S.students.length && !Object.keys(log.att).length && !log.cleared){
+    S.students.forEach(function(st){ log.att[st.id]="p"; });
+    save();
+  }
+
+  var h = '<tr><th style="width:70px">座號</th><th style="width:130px">班級</th><th>姓名</th><th style="width:110px">出缺席</th><th>備註</th></tr>';
+  S.students.forEach(function(s){
+    var v = log.att[s.id]||"";
+    var lbl = v==="p"?"出席":v==="a"?"缺席":v==="l"?"請假":"未點";
+    h += '<tr><td class="num">'+esc(s.seat)+'</td><td>'+esc(s.klass)+'</td><td><b>'+esc(s.name)+'</b></td>'+
+      '<td><button class="attbtn '+v+'" data-att="'+s.id+'">'+lbl+'</button></td>'+
+      '<td class="hint">'+esc(s.note)+'</td></tr>';
+  });
+  if(!S.students.length) h += '<tr><td colspan="5">名單是空的——先到「學生名單」分頁貼上匯入。</td></tr>';
+  $("#logTable").innerHTML = h;
+
+  // 本週課程紀錄欄位
+  $("#recText").value = log.recText||"";
+  $("#recPhoto").value = log.recPhoto||"";
+  $("#recCap").value = log.recCap||"";
+  var r = weekAtt(curWeek);
+  var total = S.students.length;
+  var unmarked = total - (r.p + r.a + r.l);
+  var tc = teacherCount();
+  var noTeacher = !((S.t1 && S.t1.trim()) || (S.t2 && S.t2.trim()));
+  var html = r.marked
+    ? "本週出席 <b>"+r.p+"</b> 人／共 "+total+" 人（缺席 "+r.a+"、請假 "+r.l+"）　→　加上授課教師 "+tc+" 位＝<b>材料費 "+(r.p+tc)+" 份</b>"
+    : "本週尚未點名。點名完成後，這裡會直接告訴你材料費要買幾份。";
+  if(noTeacher){
+    html += '<div style="color:#B43B3B;margin-top:6px">請先到「總覽」基本資料填指導老師姓名——材料費的教師數會照實填人數算，未填前暫以 2 位計。</div>';
+  }
+  if(r.marked && unmarked > 0){
+    html += '<div style="color:#B43B3B;margin-top:6px">⚠ 還有 '+unmarked+' 位未點名，這週的數字先不算數——請把每一位都點到（或按「全到」再改掉沒來的）。</div>';
+  }
+  $("#logSummary").innerHTML = html;
+}
+document.addEventListener("click",function(e){
+  var id = e.target.dataset && e.target.dataset.att;
+  if(!id) return;
+  var log = S.logs[curWeek] || (S.logs[curWeek]={att:{}});
+  var cur = log.att[id]||"";
+  log.att[id] = cur===""?"p":cur==="p"?"a":cur==="a"?"l":"p";
+  save(); renderLog(); renderTop();
+});
+$("#btnAllP").addEventListener("click",function(){
+  var log = S.logs[curWeek] || (S.logs[curWeek]={att:{}});
+  S.students.forEach(function(s){ log.att[s.id]="p"; });
+  save(); renderLog(); renderTop();
+});
+// 課程紀錄欄位存檔（P1-23）
+document.addEventListener("change",function(e){
+  if(["recText","recPhoto","recCap"].indexOf(e.target.id) < 0) return;
+  var log = S.logs[curWeek] || (S.logs[curWeek]={att:{}});
+  log[e.target.id] = e.target.value;
+  save();
+});
+$("#btnPrintRec").addEventListener("click",function(){
+  var rows = "";
+  S.plan.forEach(function(p){
+    var log = S.logs[p.week]||{};
+    if(!(log.recText||log.recPhoto||log.recCap)) return;
+    rows += '<tr><td style="text-align:center">'+p.week+'</td><td>'+esc(p.date)+'</td>'+
+      '<td>'+esc(log.recText||"")+'</td><td>'+esc(log.recPhoto||"")+'</td><td>'+esc(log.recCap||"")+'</td></tr>';
+  });
+  if(!rows){ alert("還沒有任何一週填了課程紀錄。到「教室日誌」選週次，把文字說明或照片檔名填進去。"); return; }
+  doPrint(pHead("課程紀錄（成果報告書・參 初稿）")+
+    '<table><tr><th style="width:40pt">週次</th><th style="width:70pt">日期</th><th>文字說明</th><th style="width:100pt">照片檔名</th><th style="width:120pt">圖說</th></tr>'+rows+'</table>'+
+    '<div class="pfoot">官方格式：兩大項各一段文字說明＋6 張照片；本表為素材初稿，照片檔請依檔名到相簿取用。</div>');
+});
+$("#btnClearWeek").addEventListener("click",function(){
+  if(!confirm("清除第 "+curWeek+" 週的全部點名紀錄？（該週會回到「尚未點名」；課程紀錄文字不受影響）")) return;
+  // cleared 旗標讓這一週不再被「預設全到」蓋回去；課程紀錄欄位保留
+  var old = S.logs[curWeek]||{};
+  S.logs[curWeek] = {att:{}, cleared:true, recText:old.recText||"", recPhoto:old.recPhoto||"", recCap:old.recCap||""};
+  save(); renderLog(); renderTop(); renderExp();
+});
+
+/* ============================ 回饋單 ============================ */
+function renderFb(){
+  $("#fbN").value = S.fb.n||"";
+  $("#fbOpen").value = S.fb.open||"";
+  var n = Number(S.fb.n)||0;
+  $("#fbRate").textContent = "應收 "+S.students.length+" 份（名單人數自動帶入）"
+    + (n>0 ? "｜回收 "+n+" 份／應收 "+S.students.length+" 份" : "");
+  var h = '<tr><th>題目</th>'+FBOPT.map(function(o){return '<th style="width:96px">'+o+'</th>';}).join("")+
+    '<th style="width:130px">達成率</th></tr>';
+  FBQ.forEach(function(q){
+    var arr = S.fb[q[0]];
+    var sum = fbSum(q[0]);
+    var status = "";
+    if(n>0 && sum>n){
+      status = '<div style="color:#B43B3B;font-weight:700">合計 '+sum+' ＞ 回收 '+n+'，請檢查（是不是把人次當成人數了？）</div>';
+    } else if(n>0 && sum>0 && sum<n){
+      status = '<div class="hint">尚未填完（合計 '+sum+'／'+n+'）</div>';
+    }
+    h += '<tr><td><b>'+esc(q[1])+'</b><div class="hint">對應官方 '+q[2]+'</div>'+status+'</td>';
+    for(var i=0;i<4;i++){
+      h += '<td><input class="cell num" type="number" min="0" data-fbq="'+q[0]+'" data-i="'+i+'" value="'+(arr[i]||0)+'"></td>';
+    }
+    var pct = fbPct(q[0]);
+    h += '<td class="num" style="font-weight:700;font-size:20px">'+(pct===null?"—":pct+"%")+'</td></tr>';
+  });
+  $("#fbTable").innerHTML = h;
+}
+document.addEventListener("change",function(e){
+  if(e.target.id==="fbN"){ S.fb.n = Number(e.target.value)||0; save(); renderFb(); renderDash(); }
+  if(e.target.id==="fbOpen"){ S.fb.open = e.target.value; save(); }
+  if(e.target.dataset.fbq){
+    S.fb[e.target.dataset.fbq][Number(e.target.dataset.i)] = Number(e.target.value)||0;
+    save(); renderFb(); renderDash();
+  }
+});
+
+/* ============================ 經費核銷 ============================ */
+function periodOf(dateStr){
+  if(!dateStr) return "";
+  var m = dateStr.slice(0,7);
+  return (m>="2026-09" && m<="2026-12") ? "上期（9–12 月）"
+       : (m>="2027-01" && m<="2027-06") ? "下期（1–6 月）" : "⚠ 期別外";
+}
+function renderExp(){
+  var csel = $("#expCat");
+  if(csel.options.length !== EXP_CATS.length){
+    var keepCat = csel.value;
+    csel.innerHTML = "";
+    EXP_CATS.forEach(function(c){ var o=document.createElement("option"); o.value=c; o.textContent=c; csel.appendChild(o); });
+    csel.value = keepCat || EXP_CATS[0];
+  }
+  var wsel = $("#expWeek");
+  if(wsel.options.length !== S.plan.length + 2){
+    var keep = wsel.value;
+    wsel.innerHTML = "";
+    var o0=document.createElement("option"); o0.value=""; o0.textContent="（對應週次）"; wsel.appendChild(o0);
+    var oa=document.createElement("option"); oa.value="all"; oa.textContent="整學期／未指定"; wsel.appendChild(oa);
+    for(var w=1;w<=S.plan.length;w++){ var o=document.createElement("option"); o.value=w; o.textContent="第 "+w+" 週"; wsel.appendChild(o); }
+    wsel.value = keep || "";
+  }
+  var h = '<tr><th>類別</th><th>認列日期</th><th>期別</th><th>品項／說明</th><th>金額</th><th>份數</th><th>週次</th><th></th></tr>';
+  var totals = {};
+  S.exp.forEach(function(x){
+    totals[x.cat] = (totals[x.cat]||0) + (Number(x.amt)||0);
+    h += '<tr><td><span class="tag">'+esc(x.cat)+'</span></td><td class="num">'+esc(x.date)+'</td>'+
+      '<td>'+periodOf(x.date)+'</td><td>'+esc(x.item)+'</td>'+
+      '<td class="num">'+(Number(x.amt)||0).toLocaleString()+'</td>'+
+      '<td class="num">'+esc(x.qty||"")+'</td><td class="num">'+(x.week==="all"?"整學期":(x.week?("第 "+x.week+" 週"):""))+'</td>'+
+      '<td><button class="blk sm hot" data-expdel="'+x.id+'">刪</button></td></tr>';
+  });
+  if(!S.exp.length) h += '<tr><td colspan="8">尚無登記。</td></tr>';
+  $("#expTable").innerHTML = h;
+  $("#expTotals").innerHTML = EXP_CATS.map(function(c){
+    return '<div class="stat"><b class="num">'+(totals[c]||0).toLocaleString()+'</b><span>'+c+'累計</span></div>';
+  }).join("");
+
+  // 材料費對帳
+  var tcr = teacherCount();
+  var rh = '<tr><th>週次</th><th>日期／主題</th><th>出席＋教師'+tcr+'</th><th>材料費登記份數</th><th>對帳</th></tr>';
+  var any=false, totalNeed=0, totalGot=0, hasNeed=false;
+  var hasAllEntry = S.exp.some(function(x){ return x.cat==="材料費" && x.week==="all"; });
+  for(var w2=1;w2<=S.plan.length;w2++){
+    var r = weekAtt(w2);
+    var buys = S.exp.filter(function(x){ return x.cat==="材料費" && Number(x.week)===w2; });
+    if(r.marked){ totalNeed += r.p+tcr; hasNeed=true; }
+    if(!r.marked && !buys.length) continue;
+    any=true;
+    var need = r.marked ? r.p+tcr : null;
+    var got = buys.reduce(function(a,x){ return a+(Number(x.qty)||0); },0);
+    totalGot += got;
+    var ok = (need!==null && buys.length && got===need);
+    var msg = !buys.length ? (hasAllEntry ? '<span class="hint">含在整學期登記（見下方全期合計）</span>'
+                                          : '<span class="hint">尚未登記材料費</span>')
+            : need===null ? '<span class="hint">本週尚未點名</span>'
+            : ok ? '<span class="tag p">✔ 相符</span>'
+            : '<span class="tag a">✘ 不符（差 '+(got-need>0?"+":"")+(got-need)+'）</span>';
+    var p = S.plan[w2-1]||{};
+    rh += '<tr><td class="num">第 '+w2+' 週</td><td>'+esc((p.date||"")+" "+(p.topic||""))+'</td>'+
+      '<td class="num">'+(need===null?"—":need+" 份")+'</td><td class="num">'+(buys.length?got+" 份":"—")+'</td><td>'+msg+'</td></tr>';
+  }
+  // P1-13：整學期／未指定 的材料費列一列，加總後跟全期 Σ（出席＋老師2）對一次
+  var allBuys = S.exp.filter(function(x){ return x.cat==="材料費" && x.week==="all"; });
+  if(allBuys.length){
+    any = true;
+    var allGot = allBuys.reduce(function(a,x){ return a+(Number(x.qty)||0); },0);
+    var grand = totalGot + allGot;
+    var allMsg = !hasNeed ? '<span class="hint">尚無已點名週次可對</span>'
+               : grand===totalNeed ? '<span class="tag p">✔ 全期相符</span>'
+               : '<span class="tag a">✘ 全期不符（差 '+(grand-totalNeed>0?"+":"")+(grand-totalNeed)+'）</span>';
+    rh += '<tr style="border-top:2px solid #000"><td class="num" style="font-weight:700">整學期</td>'+
+      '<td>整學期／未指定登記 '+allGot+' 份；全期合計 '+grand+' 份</td>'+
+      '<td class="num">全期 '+(hasNeed?totalNeed+" 份":"—")+'</td><td class="num">'+grand+' 份</td><td>'+allMsg+'</td></tr>';
+  }
+  if(!any) rh += '<tr><td colspan="5">點名或登記材料費後，這裡會自動對帳。</td></tr>';
+  $("#reconTable").innerHTML = rh;
+}
+$("#btnExpAdd").addEventListener("click",function(){
+  var item = $("#expItem").value.trim();
+  if(!item){ alert("請填品項／說明"); return; }
+  S.exp.push({ id:uid(), cat:$("#expCat").value, date:$("#expDate").value,
+    item:item, amt:Number($("#expAmt").value)||0, qty:$("#expQty").value, week:$("#expWeek").value });
+  $("#expItem").value=""; $("#expAmt").value=""; $("#expQty").value="";
+  save(); renderExp();
+});
+document.addEventListener("click",function(e){
+  var id = e.target.dataset && e.target.dataset.expdel;
+  if(!id) return;
+  S.exp = S.exp.filter(function(x){return x.id!==id;});
+  save(); renderExp();
+});
+
+/* ============================ 成果報告書 Word 產生（MHT 格式 .doc，離線、零外部程式庫） ============================ */
+function blobToDataB64(blob, cb){
+  var rd = new FileReader();
+  rd.onload = function(){ cb(String(rd.result).split(",")[1] || ""); };
+  rd.onerror = function(){ cb(""); };
+  rd.readAsDataURL(blob);
+}
+function b64utf8(str){
+  // UTF-8 安全的 base64（含換行摺行，MHT 慣例）
+  var b = btoa(unescape(encodeURIComponent(str)));
+  return b.replace(/(.{76})/g, "$1\r\n");
+}
+function buildReportHtml(att, imgRefs){
+  // att: {docKey: [records]}；imgRefs: {id: "imgN.ext"} 供 <img src> 對應 MHT 圖片部件
+  var a = attRate();
+  var tc = teacherCount();
+  var totalHours = S.plan.reduce(function(s,p){ return s + (Number(p.hours===undefined?2:p.hours)||0); }, 0);
+  function pct(v){ return (v===null||v===undefined||v==="") ? "____" : v; }
+  function fbv(qk){ var v = fbPct(qk); return v===null ? "____" : v; }
+  var H = [];
+  H.push('<div style="text-align:center;margin-top:120pt">'+
+    '<p style="font-size:22pt;font-weight:bold">115學年度財團法人仰望教育基金會</p>'+
+    '<p style="font-size:22pt;font-weight:bold">國中小科學社團扶助計畫 成果報告書</p>'+
+    '<p style="font-size:14pt;margin-top:60pt">主辦單位：'+esc(schoolName())+'</p>'+
+    '<p style="font-size:14pt">贊助單位：財團法人仰望教育基金會</p>'+
+    '<p style="font-size:14pt;margin-top:40pt">中華民國　　年　　月　　日</p></div>'+
+    '<br clear="all" style="page-break-before:always">');
+  // 壹
+  H.push('<h1>壹、基本資料</h1><table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;width:100%">');
+  [["贊助單位","財團法人仰望教育基金會"],
+   ["主辦單位", esc(schoolName())],
+   ["負責人／承辦人員", esc((S.t1||"")+(S.t2?("、"+S.t2):""))+"（指導老師）"],
+   ["計畫名稱","115學年度國中小科學社團扶助計畫"],
+   ["計畫期程","自115年08月01日至116年07月31日止"],
+   ["計畫對象","學生（社團學生 "+S.students.length+" 人）"],
+   ["計畫方式","開設科學社團"],
+   ["補助經費","新臺幣　　　　　元整（請以實際使用經費填寫）"],
+   ["開設班別", esc(S.club||"　")],
+   ["課程時間及週數","共 "+S.plan.length+" 週、合計 "+totalHours+" 小時"]
+  ].forEach(function(r){ H.push('<tr><td style="width:120pt;background:#eee"><b>'+r[0]+'</b></td><td>'+r[1]+'</td></tr>'); });
+  H.push('</table><br clear="all" style="page-break-before:always">');
+  // 貳
+  H.push('<h1>貳、課程規劃表</h1><table border="1" cellspacing="0" cellpadding="3" style="border-collapse:collapse;width:100%">'+
+    '<tr style="background:#eee"><th>週次</th><th>日期</th><th>課程內容</th><th>任課教師</th><th>備註</th></tr>');
+  S.plan.forEach(function(p){
+    H.push('<tr><td align="center">'+p.week+'</td><td>'+esc(p.date)+'</td><td>'+esc(p.topic)+'</td><td>'+esc(p.teacher)+'</td><td>'+esc(p.note)+'</td></tr>');
+  });
+  H.push('</table><br clear="all" style="page-break-before:always">');
+  // 參
+  H.push('<h1>參、課程紀錄</h1>');
+  var recTexts = [];
+  S.plan.forEach(function(p){
+    var log = S.logs[p.week]||{};
+    if(log.recText) recTexts.push("第"+p.week+"週（"+(p.date||"")+"）："+log.recText+(log.recCap?("｜"+log.recCap):""));
+  });
+  H.push('<p><b>一、課程／活動紀錄</b></p><p>'+(recTexts.length?recTexts.map(esc).join("<br>"):"（請填入文字說明）")+'</p>');
+  (att.rec||[]).forEach(function(f){
+    if(imgRefs[f.id]) H.push('<p><img src="'+imgRefs[f.id]+'" width="400"><br><span style="font-size:10pt;color:#666">'+esc(f.name)+'</span></p>');
+  });
+  H.push('<p><b>二、學生作品或成果發表</b></p>');
+  var shown = false;
+  ["lesson","final"].forEach(function(k){
+    (att[k]||[]).forEach(function(f){
+      if(imgRefs[f.id]){ H.push('<p><img src="'+imgRefs[f.id]+'" width="400"><br><span style="font-size:10pt;color:#666">'+esc(f.name)+'</span></p>'); shown = true; }
+    });
+  });
+  if(!shown) H.push('<p>（可於「文件繳交追蹤」上傳作品照片後重新產生）</p>');
+  H.push('<br clear="all" style="page-break-before:always">');
+  // 肆
+  H.push('<h1>肆、效益達成情形</h1><table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;width:100%">'+
+    '<tr style="background:#eee"><th style="width:70pt">面向</th><th>執行效益說明</th></tr>'+
+    '<tr><td><b>學生面</b></td><td>'+
+    '1. 興趣激發與動機：'+fbv("q1")+'% 學生反映對科學探索興趣提升。<br>'+
+    '2. 課堂參與：'+fbv("q2")+'% 學生上課專心、能參與討論。<br>'+
+    '3. 獨立操作：'+fbv("q3")+'% 學生能自己（或低度協助）完成實驗操作。<br>'+
+    '4. 表達成果：'+fbv("q4")+'% 學生能說明實驗或展示成果。<br>'+
+    '5. 出席率：社團整體出席率 '+pct(a.rate)+'%（已點名 '+a.weeks+' 週；分母＝總報名人數，請假計入）。<br>'+
+    '（回饋單回收 '+(Number(S.fb.n)||0)+' 份／應收 '+S.students.length+' 份）</td></tr>'+
+    '<tr><td><b>師資面</b></td><td>'+
+    '6. 教學延伸：'+pct(S.selfQ6)+'% 課程延伸應用於正式自然課。<br>'+
+    '7. 專業增能：'+pct(S.selfQ7)+'% 教師認為對專業有實質幫助。</td></tr></table>'+
+    '<br clear="all" style="page-break-before:always">');
+  // 伍
+  H.push('<h1>伍、結論與建議</h1><p>'+(S.fb.open?("學生回饋摘錄（第 5 題）：<br>"+esc(S.fb.open).replace(/\n/g,"<br>")):"（可根據整體計畫給予建議或特殊學生個案分享）")+'</p>'+
+    '<br clear="all" style="page-break-before:always">');
+  // 陸、附件
+  H.push('<h1>陸、附件</h1>');
+  H.push('<h2>附件一、學生名單</h2><table border="1" cellspacing="0" cellpadding="3" style="border-collapse:collapse;width:100%">'+
+    '<tr style="background:#eee"><th>序號</th><th>班級</th><th>性別</th><th>姓名</th></tr>');
+  S.students.forEach(function(s2,i){
+    H.push('<tr><td align="center">'+(i+1)+'</td><td>'+esc(s2.klass)+'</td><td></td><td>'+esc(s2.name)+'</td></tr>');
+  });
+  H.push('</table>');
+  // 附件二 出席表
+  H.push('<h2>附件二、學生出席表（教室日誌）</h2><table border="1" cellspacing="0" cellpadding="2" style="border-collapse:collapse;width:100%;font-size:9pt">');
+  var markedWeeks = [];
+  for(var w=1; w<=S.plan.length; w++){ if(weekAtt(w).marked) markedWeeks.push(w); }
+  H.push('<tr style="background:#eee"><th>座號</th><th>姓名</th>'+markedWeeks.map(function(w){return '<th>W'+w+'</th>';}).join("")+'</tr>');
+  S.students.forEach(function(s2){
+    H.push('<tr><td align="center">'+esc(s2.seat)+'</td><td>'+esc(s2.name)+'</td>'+
+      markedWeeks.map(function(w){
+        var v = (S.logs[w]&&S.logs[w].att) ? S.logs[w].att[s2.id] : "";
+        return '<td align="center">'+(v==="p"?"✓":v==="a"?"✗":v==="l"?"假":"")+'</td>';
+      }).join("")+'</tr>');
+  });
+  H.push('</table><p>累計出席率：'+pct(a.rate)+'%（已點名 '+a.weeks+' 週）</p>');
+  // 附件三 回饋單統計
+  H.push('<h2>附件三、學生回饋單（統計）</h2><table border="1" cellspacing="0" cellpadding="3" style="border-collapse:collapse;width:100%">'+
+    '<tr style="background:#eee"><th>題目</th>'+FBOPT.map(function(o){return '<th>'+o+'</th>';}).join("")+'<th>達成率</th></tr>');
+  FBQ.forEach(function(q){
+    var arr = S.fb[q[0]]||[0,0,0,0];
+    H.push('<tr><td>'+esc(q[1])+'</td>'+arr.map(function(v){return '<td align="center">'+(v||0)+'</td>';}).join("")+
+      '<td align="center">'+fbv(q[0])+'%</td></tr>');
+  });
+  H.push('</table><p>回收 '+(Number(S.fb.n)||0)+' 份／應收 '+S.students.length+' 份</p>');
+  // 附件四 經費使用一覽
+  H.push('<h2>附件四、經費使用一覽（核銷登記）</h2><table border="1" cellspacing="0" cellpadding="3" style="border-collapse:collapse;width:100%">'+
+    '<tr style="background:#eee"><th>類別</th><th>認列日期</th><th>期別</th><th>品項</th><th>金額</th><th>份數</th><th>週次</th></tr>');
+  var expTotal = 0;
+  S.exp.forEach(function(x){
+    expTotal += Number(x.amt)||0;
+    H.push('<tr><td>'+esc(x.cat)+'</td><td>'+esc(x.date)+'</td><td>'+periodOf(x.date)+'</td><td>'+esc(x.item)+'</td>'+
+      '<td align="right">'+(Number(x.amt)||0).toLocaleString()+'</td><td align="center">'+esc(x.qty||"")+'</td>'+
+      '<td align="center">'+(x.week==="all"?"整學期":(x.week?("第"+x.week+"週"):""))+'</td></tr>');
+  });
+  H.push('<tr><td colspan="4" align="right"><b>合計</b></td><td align="right"><b>'+expTotal.toLocaleString()+'</b></td><td colspan="2"></td></tr></table>'+
+    '<p style="font-size:10pt;color:#666">材料費、餐費、茶水費發票統編：82339563 財團法人仰望教育基金會。</p>');
+  // 附件五起：各項目上傳檔案
+  var attIdx = 5;
+  var CN = ["","一","二","三","四","五","六","七","八","九","十","十一","十二","十三","十四","十五","十六"];
+  DOCS.forEach(function(d){
+    var files = att[d[0]]||[];
+    if(!files.length) return;
+    H.push('<h2>附件'+(CN[attIdx]||attIdx)+'、'+esc(d[1])+'（上傳檔案）</h2>');
+    var nonImg = [];
+    files.forEach(function(f){
+      if(imgRefs[f.id]) H.push('<p><img src="'+imgRefs[f.id]+'" width="400"><br><span style="font-size:10pt;color:#666">'+esc(f.name)+'</span></p>');
+      else nonImg.push(f);
+    });
+    if(nonImg.length){
+      H.push('<p><b>非圖片檔案清單（原檔請由系統「文件繳交追蹤」下載附送）：</b></p><ul>'+
+        nonImg.map(function(f){ return '<li>'+esc(f.name)+'（'+fmtSize(f.size)+'）</li>'; }).join("")+'</ul>');
+    }
+    attIdx++;
+  });
+  return '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">'+
+    '<head><meta charset="utf-8"><title>成果報告書</title>'+
+    '<style>body{font-family:"標楷體","DFKai-SB","Microsoft JhengHei",serif;font-size:12pt}h1{font-size:16pt}h2{font-size:14pt}</style>'+
+    '<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]--></head><body>'+
+    H.join("\n") + '</body></html>';
+}
+function generateWordReport(){
+  var btn = document.getElementById("btnWordReport");
+  if(btn){ btn.disabled = true; btn.textContent = "產生中…"; }
+  fdbListAll(function(all){
+    var att = {};
+    all.forEach(function(f){ (att[f.doc] = att[f.doc]||[]).push(f); });
+    // 圖片檔轉 base64 部件
+    var imgs = all.filter(function(f){ return /^image\//.test(f.type); });
+    var imgRefs = {}, parts = [], pending = imgs.length;
+    function assemble(){
+      var html = buildReportHtml(att, imgRefs);
+      var B = "----=_YWREPORT_BOUNDARY";
+      var mht = 'MIME-Version: 1.0\r\n' +
+        'Content-Type: multipart/related; boundary="'+B+'"; type="text/html"\r\n\r\n' +
+        '--'+B+'\r\nContent-Type: text/html; charset="utf-8"\r\nContent-Transfer-Encoding: base64\r\nContent-Location: report.htm\r\n\r\n' +
+        b64utf8(html) + '\r\n';
+      parts.forEach(function(p){
+        mht += '--'+B+'\r\nContent-Type: '+p.type+'\r\nContent-Transfer-Encoding: base64\r\nContent-Location: '+p.loc+'\r\n\r\n' + p.b64 + '\r\n';
+      });
+      mht += '--'+B+'--\r\n';
+      var d = new Date();
+      var stamp = d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
+      var blob = new Blob([mht], {type:"application/msword"});
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "成果報告書_"+schoolName()+"_"+stamp+".doc";
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+      if(btn){ btn.disabled = false; btn.textContent = "列印成果報告書（Word）"; }
+    }
+    if(!pending){ assemble(); return; }
+    imgs.forEach(function(f, i){
+      var ext = (f.name.split(".").pop()||"png").toLowerCase().replace(/[^a-z0-9]/g,"") || "png";
+      var loc = "img"+f.id+"."+ext;
+      blobToDataB64(f.blob, function(b64){
+        if(b64){
+          imgRefs[f.id] = loc;
+          parts.push({type: f.type, loc: loc, b64: b64.replace(/(.{76})/g, "$1\r\n")});
+        }
+        pending--;
+        if(pending === 0) assemble();
+      });
+    });
+  });
+}
+document.addEventListener("click", function(e){
+  if(e.target && e.target.id === "btnWordReport") generateWordReport();
+});
+
+/* ============================ 列印 ============================ */
+function pHead(sub){
+  return '<h1>'+esc(schoolName())+'　'+esc(S.club||"科學社團")+'</h1>'+
+    '<div class="phead">'+esc(S.year)+' 學年度「國中小科學社團扶助計畫」　'+sub+'</div>';
+}
+function doPrint(html){
+  $("#printArea").innerHTML = html;
+  window.print();
+}
+$("#btnPrintPlan").addEventListener("click",function(){
+  var rows = S.plan.map(function(p){
+    return '<tr><td style="text-align:center">'+p.week+'</td><td>'+esc(p.date)+'</td><td>'+esc(p.topic)+
+      '</td><td style="text-align:center">'+esc(p.hours===undefined?2:p.hours)+'</td><td>'+esc(p.teacher)+'</td><td>'+esc(p.note)+'</td></tr>';
+  }).join("");
+  doPrint(pHead("課程規劃表")+
+    '<table><tr><th style="width:44pt">週次</th><th style="width:80pt">日期</th><th>課程內容</th><th style="width:44pt">時數</th><th style="width:80pt">任課教師</th><th style="width:90pt">備註</th></tr>'+rows+'</table>'+
+    '<div class="pfoot">每週至少 2 小時；共 '+S.plan.length+' 週。</div>');
+});
+$("#btnPrintHours").addEventListener("click",function(){
+  var rows="", tot=0;
+  S.plan.forEach(function(p){
+    var r = weekAtt(p.week);
+    if(!p.date && !r.marked) return;
+    var hrs = Number(p.hours===undefined?2:p.hours)||0;
+    tot += hrs;
+    rows += '<tr><td style="text-align:center">'+p.week+'</td><td>'+esc(p.date)+'</td><td>'+esc(p.topic)+
+      '</td><td style="text-align:center">'+hrs+'</td><td>'+esc(p.teacher)+'</td><td></td></tr>';
+  });
+  doPrint(pHead("授課時數表（鐘點費核銷用）")+
+    '<table><tr><th>週次</th><th>上課日期</th><th>課程內容</th><th>時數</th><th>授課教師</th><th style="width:90pt">教師簽名</th></tr>'+rows+'</table>'+
+    '<div class="pfoot">合計時數：'+tot+' 小時。鐘點費認列「實際上課日期」。</div>'+
+    '<div class="sig"><span>承辦人：＿＿＿＿＿＿</span><span>主任：＿＿＿＿＿＿</span><span>校長：＿＿＿＿＿＿</span></div>');
+});
+$("#btnPrintSign").addEventListener("click",function(){
+  var p = S.plan[curWeek-1]||{};
+  var rows = S.students.map(function(s){
+    return '<tr><td style="text-align:center">'+esc(s.seat)+'</td><td>'+esc(s.klass)+'</td><td>'+esc(s.name)+
+      '</td><td style="width:70pt"></td><td style="width:110pt"></td></tr>';
+  }).join("");
+  doPrint(pHead("社團課簽到表（教室日誌・附件二）")+
+    '<div class="phead">第 '+curWeek+' 週　日期：'+(esc(p.date)||"＿＿＿＿")+'　主題：'+(esc(p.topic)||"＿＿＿＿＿＿＿＿")+'</div>'+
+    '<table><tr><th style="width:44pt">座號</th><th style="width:80pt">班級</th><th>姓名</th><th>出席✓</th><th>簽名／備註</th></tr>'+rows+'</table>'+
+    '<div class="pfoot">本週出席：＿＿ 人／共 '+S.students.length+' 人　　加上授課教師 '+teacherCount()+' 位＝材料費 ＿＿ 份（核銷用）</div>'+
+    '<div class="sig"><span>指導老師：＿＿＿＿＿＿</span><span>協同老師：＿＿＿＿＿＿</span></div>');
+});
+$("#btnPrintLog").addEventListener("click",function(){
+  var p = S.plan[curWeek-1]||{};
+  var log = S.logs[curWeek]||{att:{}};
+  var rows = S.students.map(function(s){
+    var v = (log.att||{})[s.id];
+    var lbl = v==="p"?"✓ 出席":v==="a"?"✗ 缺席":v==="l"?"△ 請假":"";
+    return '<tr><td style="text-align:center">'+esc(s.seat)+'</td><td>'+esc(s.klass)+'</td><td>'+esc(s.name)+'</td><td style="text-align:center">'+lbl+'</td></tr>';
+  }).join("");
+  var r = weekAtt(curWeek);
+  doPrint(pHead("教室日誌（出席紀錄）")+
+    '<div class="phead">第 '+curWeek+' 週　日期：'+esc(p.date)+'　主題：'+esc(p.topic)+'</div>'+
+    '<table><tr><th style="width:44pt">座號</th><th style="width:80pt">班級</th><th>姓名</th><th style="width:80pt">出缺席</th></tr>'+rows+'</table>'+
+    '<div class="pfoot">本週出席 '+r.p+' 人／共 '+S.students.length+' 人（缺席 '+r.a+'、請假 '+r.l+'）　加上授課教師 '+teacherCount()+' 位＝<b>材料費 '+(r.p+teacherCount())+' 份</b></div>');
+});
+$("#btnPrintKpi").addEventListener("click",function(){
+  var a = attRate();
+  function fbLine(no, qk, lbl){
+    var pct = fbPct(qk); var arr = S.fb[qk]||[0,0,0,0]; var n = Number(S.fb.n)||0;
+    var v = pct===null ? "＿＿＿" : pct+"%";
+    var src = n>0 ? "（回收 "+n+" 份：很同意 "+(arr[0]||0)+"＋同意 "+(arr[1]||0)+"）" : "（回饋單尚未統計）";
+    return '<tr><td>'+no+'</td><td>'+lbl+'</td><td style="text-align:center;font-weight:bold">'+v+'</td><td>'+src+'</td></tr>';
+  }
+  var kpiRows = fbLine("①","q1","學生對科學探索的興趣提升")
+    + fbLine("②","q2","學生上課專心、能參與討論")
+    + fbLine("③","q3","學生能自己（或低度協助）完成實驗操作")
+    + fbLine("④","q4","學生能說明實驗或展示成果")
+    + '<tr><td>⑤</td><td>社團整體出席率</td><td style="text-align:center;font-weight:bold">'+(a.rate===null?"＿＿＿":a.rate+"%")+'</td><td>（教室日誌，已點名 '+a.weeks+' 週）</td></tr>'
+    + '<tr><td>⑥</td><td>課程延伸應用到正式自然課</td><td style="text-align:center;font-weight:bold">'+(S.selfQ6===""?"＿＿＿":S.selfQ6+"%")+'</td><td>（老師自評）</td></tr>'
+    + '<tr><td>⑦</td><td>老師覺得對專業有實質幫助</td><td style="text-align:center;font-weight:bold">'+(S.selfQ7===""?"＿＿＿":S.selfQ7+"%")+'</td><td>（老師自評）</td></tr>';
+  doPrint(pHead("成果報告書素材頁（壹・基本資料＋肆・效益達成情形）")+
+    '<table><tr><th style="width:110pt">欄位</th><th>內容</th></tr>'+
+    '<tr><td>學校</td><td>'+esc(schoolName())+'</td></tr>'+
+    '<tr><td>社團名稱</td><td>'+esc(S.club||"＿＿＿＿")+'</td></tr>'+
+    '<tr><td>學年度</td><td>'+esc(S.year)+'</td></tr>'+
+    '<tr><td>指導老師</td><td>'+esc(S.t1||"＿＿＿")+"　"+esc(S.t2||"")+'</td></tr>'+
+    '<tr><td>社團學生數</td><td>'+S.students.length+' 人</td></tr>'+
+    '<tr><td>總週數</td><td>'+S.plan.length+' 週</td></tr></table>'+
+    '<div class="phead" style="margin-top:10pt">肆・效益達成情形（七個百分比，抄進報告書即可）</div>'+
+    '<table><tr><th style="width:30pt">項</th><th>指標</th><th style="width:60pt">百分比</th><th>來源與分母</th></tr>'+kpiRows+'</table>'+
+    (S.fb.open ? '<div class="phead" style="margin-top:10pt">伍・結論與建議 素材（回饋單第 5 題彙整）</div><table><tr><td>'+esc(S.fb.open)+'</td></tr></table>' : '')+
+    '<div class="pfoot">分子分母口徑送件前以基金會窗口確認為準；旁註回收率（回收 '+(Number(S.fb.n)||0)+' 份／應收 '+S.students.length+' 份）。</div>');
+});
+$("#btnPrintRoster").addEventListener("click",function(){
+  var rows = S.students.map(function(s){
+    return '<tr><td style="text-align:center">'+esc(s.seat)+'</td><td>'+esc(s.klass)+'</td><td>'+esc(s.name)+'</td><td>'+esc(s.note)+'</td></tr>';
+  }).join("");
+  doPrint(pHead("學生名單（附件一）")+
+    '<table><tr><th style="width:50pt">座號</th><th style="width:90pt">班級</th><th>姓名</th><th style="width:110pt">備註</th></tr>'+rows+'</table>'+
+    '<div class="pfoot">共 '+S.students.length+' 人。座號以此列印版為準（Excel 開 CSV 會把「01」變成 1）。</div>');
+});
+$("#btnPrintFb").addEventListener("click",function(){
+  var opts = '<span style="margin-right:14pt">□ 很同意</span><span style="margin-right:14pt">□ 同意</span><span style="margin-right:14pt">□ 普通</span><span>□ 不同意</span>';
+  var qs = FBQ.map(function(q,i){
+    return '<div class="fbq"><b>'+(i+1)+'. '+esc(q[1])+'</b><br>'+opts+'</div>';
+  }).join("");
+  doPrint(pHead("科學社團　學習回饋單")+
+    '<div class="phead">班級：＿＿＿＿＿　座號：＿＿＿（不用寫名字也可以）</div>'+qs+
+    '<div class="fbq"><b>5. 這學期我最喜歡的一堂課是：＿＿＿＿＿＿＿＿＿＿＿＿</b><br>因為：＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿</div>'+
+    '<div class="pfoot">謝謝你的回答！</div>');
+});
+
+/* ============================ CSV 匯出 ============================ */
+function downloadFile(name, mime, content){
+  var blob = new Blob(["﻿"+content], {type:mime});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
+}
+function csvEsc(v){ v=String(v==null?"":v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
+function toCsv(rows){ return rows.map(function(r){ return r.map(csvEsc).join(","); }).join("\r\n"); }
+$("#btnCsvRoster").addEventListener("click",function(){
+  var rows = [["座號","班級","姓名","備註"]].concat(S.students.map(function(s){return [s.seat,s.klass,s.name,s.note];}));
+  downloadFile("學生名單.csv","text/csv",toCsv(rows));
+});
+$("#btnCsvPlan").addEventListener("click",function(){
+  var rows = [["週次","日期","課程內容","時數","任課教師","備註"]].concat(S.plan.map(function(p){return [p.week,p.date,p.topic,(p.hours===undefined?2:p.hours),p.teacher,p.note];}));
+  downloadFile("課程規劃表.csv","text/csv",toCsv(rows));
+});
+$("#btnCsvAtt").addEventListener("click",function(){
+  var head = ["座號","班級","姓名"]; for(var w=1;w<=S.plan.length;w++) head.push("W"+w);
+  var rows = [head];
+  S.students.forEach(function(s){
+    var r = [s.seat,s.klass,s.name];
+    for(var w2=1;w2<=S.plan.length;w2++){
+      var v = (S.logs[w2]&&S.logs[w2].att)?S.logs[w2].att[s.id]:"";
+      r.push(v==="p"?"出":v==="a"?"缺":v==="l"?"假":"");
+    }
+    rows.push(r);
+  });
+  downloadFile("出席總表.csv","text/csv",toCsv(rows));
+});
+$("#btnCsvExp").addEventListener("click",function(){
+  var rows = [["類別","認列日期","期別","品項","金額","份數","週次"]]
+    .concat(S.exp.map(function(x){return [x.cat,x.date,periodOf(x.date),x.item,x.amt,x.qty,x.week];}));
+  downloadFile("經費核銷.csv","text/csv",toCsv(rows));
+});
+
+/* ============================ 備份 ============================ */
+$("#btnPortable").addEventListener("click",function(){
+  save();   // 確保內嵌資料節點是最新狀態
+  var html = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+  var d = new Date();
+  var stamp = d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
+  var blob = new Blob([html], {type:"text/html;charset=utf-8"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "仰望社團系統_"+schoolName()+"_"+stamp+".html";
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },500);
+});
+$("#btnExport").addEventListener("click",function(){
+  var d = new Date();
+  var stamp = d.getFullYear()+("0"+(d.getMonth()+1)).slice(-2)+("0"+d.getDate()).slice(-2);
+  downloadFile("仰望社團備份_"+schoolName()+"_"+stamp+".json","application/json",JSON.stringify(S,null,1));
+});
+$("#btnImportBak").addEventListener("click",function(){ $("#bakFile").click(); });
+$("#bakFile").addEventListener("change",function(){
+  var f = this.files[0]; if(!f) return;
+  var rd = new FileReader();
+  rd.onload = function(){
+    var o = null;
+    try{ o = JSON.parse(rd.result); }catch(e){}
+    if(!o || !Array.isArray(o.students)){ alert("這不是本系統的備份檔。"); return; }
+    if(!confirm("匯入會覆蓋目前所有資料，確定？（匯入前會自動先下載一份目前資料的備份）")) return;
+    // P1-22：匯入前自動落一份現況備份，救得回來
+    downloadFile("匯入前自動備份.json","application/json",JSON.stringify(S,null,1));
+    // P1-22：先補齊欄位、渲染成功才落地；失敗就還原，畫面與資料都不動
+    var prev = S;
+    try{
+      S = normalize(o);
+      renderAll();
+      save();
+      alert("備份匯入完成。");
+    }catch(e){
+      S = prev;
+      try{ renderAll(); }catch(e2){}
+      alert("這份備份檔內容不完整，匯入已取消——原本的資料原封不動。");
+    }
+  };
+  rd.readAsText(f,"utf-8");
+  this.value="";
+});
+$("#btnSample").addEventListener("click",function(){
+  if(S.students.length && !confirm("會在目前資料上加入示範學生與課程，確定？")) return;
+  if(!S.club) S.club = "科學探究社";
+  if(!S.students.length){
+    for(var i=1;i<=15;i++){
+      S.students.push({id:uid(),seat:("0"+i).slice(-2),klass:"四年甲班",name:"示範學生"+("0"+i).slice(-2),note:""});
+    }
+  }
+  var topics = ["認識校園的植物","觀察植物怎麼繁殖","選一種植物來研究","設計我們的實驗","動手做：種下去","觀察與記錄（一）"];
+  topics.forEach(function(t,i){
+    if(!S.plan[i].topic){ S.plan[i].topic=t; S.plan[i].teacher=S.t1||"陳老師"; }
+    if(!S.plan[i].date){
+      var d = new Date(2026,8,9+i*7); // 2026/9/9 起每週三
+      S.plan[i].date = d.toISOString().slice(0,10);
+    }
+  });
+  save(); renderAll();
+});
+$("#btnWipe").addEventListener("click",function(){
+  if(!confirm("確定清除全部資料？（建議先匯出備份）")) return;
+  if(!confirm("再確認一次：所有名單、出席、核銷紀錄都會消失。")) return;
+  S = blankState();
+  try{ localStorage.removeItem(STORE_KEY); }catch(e){}
+  save(); renderAll();
+});
+
+/* ============================ 啟動 ============================ */
+function renderAll(){
+  renderTop(); renderSettings(); renderDash(); renderRoster();
+  renderPlan(); renderLog(); renderFb(); renderExp();
+}
+load();
+renderAll();
+</script>
+</body>
+</html>

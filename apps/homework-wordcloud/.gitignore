@@ -1,0 +1,14 @@
+# PyInstaller 產物
+build/
+dist/
+*.spec.bak
+
+# Python
+__pycache__/
+*.py[cod]
+
+# 真實學生資料絕對不進版控（只有 sample_input\ 的合成資料可以）
+input/
+output/
+*.xlsx
+!sample_input/*.xlsx

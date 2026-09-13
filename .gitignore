@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec.bak
+*.log
+.DS_Store
+Thumbs.db
+apps/*/selftest_out/
+apps/*/_tmp*/

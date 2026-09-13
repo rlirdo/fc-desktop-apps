@@ -1,0 +1,7 @@
+# 週報產生器（WeeklyReportMaker）相依套件
+# GUI 用 Python 內建的 tkinter，不需額外安裝。
+python-pptx>=1.0.2
+Pillow>=10.0.0
+lxml>=5.0.0
+# 打包用（本機或 CI 執行 pyinstaller build.spec 時需要）
+pyinstaller>=6.10
