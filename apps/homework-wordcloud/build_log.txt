@@ -1,0 +1,155 @@
+161 INFO: PyInstaller: 6.22.3, contrib hooks: 2026.7
+161 INFO: Python: 3.13.5
+189 INFO: Platform: Windows-11-10.0.26200-SP0
+190 INFO: Python environment: C:\Users\游豐兆\AppData\Local\Programs\Python\Python313
+638 INFO: Module search paths (PYTHONPATH):
+['D:\\02-aitt_claude_agent\\fc-desktop-apps\\apps\\homework-wordcloud',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\DLLs',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\win32',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\win32\\lib',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\Pythonwin',
+ 'D:\\02-aitt_claude_agent\\fc-desktop-apps\\apps\\homework-wordcloud']
+1033 INFO: Appending 'datas' from .spec
+1037 INFO: checking Analysis
+1068 INFO: Building because excludes changed
+1068 INFO: Looking for Python shared library...
+1068 INFO: Using Python shared library: C:\Users\游豐兆\AppData\Local\Programs\Python\Python313\python313.dll
+1068 INFO: Running Analysis Analysis-00.toc
+1068 INFO: Target bytecode optimization level: 0
+1068 INFO: Initializing module dependency graph...
+1069 INFO: Initializing module graph hook caches...
+1082 INFO: Analyzing modules for base_library.zip ...
+2137 INFO: Processing standard module hook 'hook-encodings.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+2657 INFO: Processing standard module hook 'hook-math.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+3861 INFO: Processing standard module hook 'hook-pickle.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+4633 INFO: Processing standard module hook 'hook-heapq.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+5156 INFO: Caching module dependency graph...
+5193 INFO: Analyzing D:\02-aitt_claude_agent\fc-desktop-apps\apps\homework-wordcloud\app.py
+C:\Users\游豐兆\AppData\Local\Programs\Python\Python313\Lib\site-packages\jieba\__init__.py:44: SyntaxWarning: invalid escape sequence '\.'
+  re_han_default = re.compile("([\u4E00-\u9FD5a-zA-Z0-9+#&\._%\-]+)", re.U)
+C:\Users\游豐兆\AppData\Local\Programs\Python\Python313\Lib\site-packages\jieba\__init__.py:46: SyntaxWarning: invalid escape sequence '\s'
+  re_skip_default = re.compile("(\r\n|\s)", re.U)
+5256 INFO: Processing standard module hook 'hook-jieba.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+C:\Users\游豐兆\AppData\Local\Programs\Python\Python313\Lib\site-packages\jieba\finalseg\__init__.py:78: SyntaxWarning: invalid escape sequence '\.'
+  re_skip = re.compile("([a-zA-Z0-9]+(?:\.\d+)?%?)")
+5409 INFO: Processing standard module hook 'hook-pkg_resources.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+5411 INFO: SetuptoolsInfo: initializing cached setuptools info...
+8257 INFO: Processing standard module hook 'hook-platform.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+8276 INFO: Processing standard module hook 'hook-_ctypes.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+8325 INFO: Processing standard module hook 'hook-xml.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+8327 INFO: Processing pre-safe-import-module hook 'hook-packaging.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+8401 INFO: Processing standard module hook 'hook-sysconfig.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+8439 INFO: Processing pre-safe-import-module hook 'hook-jaraco.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+8440 INFO: Setuptools: 'jaraco' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco'!
+8448 INFO: Processing standard module hook 'hook-setuptools.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+8471 INFO: Processing pre-safe-import-module hook 'hook-distutils.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+8503 INFO: Processing pre-safe-import-module hook 'hook-jaraco.functools.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+8503 INFO: Setuptools: 'jaraco.functools' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco.functools'!
+8514 INFO: Processing pre-safe-import-module hook 'hook-more_itertools.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+8514 INFO: Setuptools: 'more_itertools' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.more_itertools'!
+8655 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+8903 INFO: Processing pre-safe-import-module hook 'hook-jaraco.text.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+8903 INFO: Setuptools: 'jaraco.text' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco.text'!
+8913 INFO: Processing standard module hook 'hook-setuptools._vendor.jaraco.text.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+8914 INFO: Processing pre-safe-import-module hook 'hook-importlib_resources.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+8916 INFO: Processing pre-safe-import-module hook 'hook-jaraco.context.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+8917 INFO: Setuptools: 'jaraco.context' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco.context'!
+9244 INFO: Processing pre-safe-import-module hook 'hook-backports.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+9245 INFO: Setuptools: 'backports' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.backports'!
+9443 INFO: Processing pre-safe-import-module hook 'hook-importlib_metadata.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+9444 INFO: Setuptools: 'importlib_metadata' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.importlib_metadata'!
+9471 INFO: Processing standard module hook 'hook-setuptools._vendor.importlib_metadata.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+9475 INFO: Processing pre-safe-import-module hook 'hook-zipp.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+9476 INFO: Setuptools: 'zipp' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.zipp'!
+9718 INFO: Processing pre-safe-import-module hook 'hook-tomli.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+9719 INFO: Setuptools: 'tomli' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.tomli'!
+10243 INFO: Processing pre-safe-import-module hook 'hook-wheel.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+10244 INFO: Setuptools: 'wheel' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.wheel'!
+10454 INFO: Processing pre-safe-import-module hook 'hook-platformdirs.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+10463 INFO: Processing standard module hook 'hook-platformdirs.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+10543 INFO: Processing standard module hook 'hook-numpy.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+11442 INFO: Processing standard module hook 'hook-webbrowser.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+12544 INFO: Processing standard module hook 'hook-difflib.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+12798 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+13821 INFO: Processing standard module hook 'hook-psutil.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+14151 INFO: Processing standard module hook 'hook-charset_normalizer.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+15709 INFO: Processing standard module hook 'hook-openpyxl.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+15971 INFO: Processing standard module hook 'hook-lxml.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+16332 INFO: Processing standard module hook 'hook-lxml.etree.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+16341 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+16440 INFO: Processing standard module hook 'hook-xml.dom.domreg.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+17188 INFO: Processing standard module hook 'hook-PIL.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+17311 INFO: Processing standard module hook 'hook-PIL.Image.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+17856 INFO: Processing standard module hook 'hook-PIL.ImageFilter.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+18590 INFO: Processing standard module hook 'hook-wordcloud.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+18655 INFO: Processing standard module hook 'hook-matplotlib.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+19322 INFO: Processing standard module hook 'hook-matplotlib.backend_bases.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+19989 INFO: Processing standard module hook 'hook-jinja2.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+20495 INFO: Processing standard module hook 'hook-matplotlib.backends.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+20588 INFO: Processing standard module hook 'hook-matplotlib.pyplot.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+20735 INFO: Processing standard module hook 'hook-matplotlib.figure.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+21428 INFO: Processing standard module hook 'hook-dateutil.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+21529 INFO: Processing pre-safe-import-module hook 'hook-six.moves.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+23141 INFO: Processing pre-safe-import-module hook 'hook-gi.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+23146 INFO: Processing standard module hook 'hook-certifi.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+25819 INFO: Processing standard module hook 'hook-pptx.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+27507 INFO: Processing pre-safe-import-module hook 'hook-win32com.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\pre_safe_import_module'
+27584 INFO: Processing standard module hook 'hook-win32com.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+27586 INFO: Processing standard module hook 'hook-pythoncom.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+27660 INFO: Processing standard module hook 'hook-pywintypes.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+28319 INFO: Processing pre-find-module-path hook 'hook-tkinter.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_find_module_path'
+28321 INFO: TclTkInfo: initializing cached Tcl/Tk info...
+28790 INFO: Processing standard module hook 'hook-_tkinter.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+28855 INFO: Processing module hooks (post-graph stage)...
+29478 INFO: Processing standard module hook 'hook-lxml.isoschematron.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+29552 INFO: Processing standard module hook 'hook-matplotlib.backends.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+29553 INFO: Matplotlib backend selection method: automatic discovery of used backends
+29879 INFO: Trying determine the default backend as first importable candidate from the list: ['QtAgg', 'Qt5Agg', 'Gtk4Agg', 'Gtk3Agg', 'TkAgg', 'WxAgg']
+32160 INFO: Selected matplotlib backends: ['TkAgg']
+32160 INFO: Extra dists for selected matplotlib backends: []
+32453 INFO: Processing standard module hook 'hook-PIL.SpiderImagePlugin.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+32955 INFO: Processing standard module hook 'hook-_tkinter.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+32956 INFO: Processing standard module hook 'hook-lxml.objectify.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+32974 INFO: Performing binary vs. data reclassification (1205 entries)
+33197 INFO: Looking for ctypes DLLs
+33263 INFO: Analyzing run-time hooks ...
+33268 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+33271 INFO: Including run-time hook 'pyi_rth_pywintypes.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks'
+33272 INFO: Including run-time hook 'pyi_rth_pythoncom.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks'
+33272 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+33275 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+33277 INFO: Including run-time hook 'pyi_rth_mplconfig.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+33278 INFO: Processing pre-find-module-path hook 'hook-_pyi_rth_utils.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_find_module_path'
+33280 INFO: Processing standard module hook 'hook-_pyi_rth_utils.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+33290 INFO: Including run-time hook 'pyi_rth_pkgres.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+33295 INFO: Including run-time hook 'pyi_rth_setuptools.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+33296 INFO: Including run-time hook 'pyi_rth__tkinter.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+33333 INFO: Creating base_library.zip...
+33349 INFO: Looking for dynamic libraries
+C:\Users\游豐兆\AppData\Local\Programs\Python\Python313\Lib\site-packages\PyInstaller\building\build_main.py:227: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  __import__(package)
+34983 INFO: Extra DLL search directories (AddDllDirectory): ['C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\numpy.libs']
+34983 INFO: Extra DLL search directories (PATH): []
+36303 INFO: Warnings written to D:\02-aitt_claude_agent\fc-desktop-apps\apps\homework-wordcloud\build\build\warn-build.txt
+36397 INFO: Graph cross-reference written to D:\02-aitt_claude_agent\fc-desktop-apps\apps\homework-wordcloud\build\build\xref-build.html
+36456 INFO: checking PYZ
+36629 INFO: checking PKG
+36663 INFO: Building because toc changed
+36663 INFO: Building PKG (CArchive) HomeworkWordCloud.pkg
+52196 INFO: Building PKG (CArchive) HomeworkWordCloud.pkg completed successfully.
+52220 INFO: Bootloader C:\Users\游豐兆\AppData\Local\Programs\Python\Python313\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\runw.exe
+52220 INFO: checking EXE
+52261 INFO: Building because toc changed
+52261 INFO: Building EXE from EXE-00.toc
+52271 INFO: Copying bootloader EXE to D:\02-aitt_claude_agent\fc-desktop-apps\apps\homework-wordcloud\dist\HomeworkWordCloud.exe
+52351 INFO: Copying icon to EXE
+52420 INFO: Copying 0 resources to EXE
+52420 INFO: Embedding manifest in EXE
+52493 INFO: Appending PKG archive to EXE
+52911 INFO: Fixing EXE headers
+53711 INFO: Building EXE from EXE-00.toc completed successfully.
+53732 INFO: Build complete! The results are available in: D:\02-aitt_claude_agent\fc-desktop-apps\apps\homework-wordcloud\dist

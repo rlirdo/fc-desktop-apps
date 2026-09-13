@@ -22,6 +22,10 @@ datas = [
 ]
 if os.path.exists(os.path.join(HERE, "icon.ico")):
     datas.append((os.path.join(HERE, "icon.ico"), "."))
+# python-pptx 的 templates/（default.pptx、notesMaster.xml…）在 macOS 端不會被 hook 自動帶入，
+# 無條件收集，否則 notes_slide 會 FileNotFoundError（CI macos-latest 實測）。
+from PyInstaller.utils.hooks import collect_data_files
+datas += collect_data_files("pptx")
 
 a = Analysis(
     [os.path.join(HERE, "app.py")],

@@ -1,0 +1,89 @@
+176 INFO: PyInstaller: 6.22.3, contrib hooks: 2026.7
+176 INFO: Python: 3.13.5
+207 INFO: Platform: Windows-11-10.0.26200-SP0
+207 INFO: Python environment: C:\Users\游豐兆\AppData\Local\Programs\Python\Python313
+build.spec:4: SyntaxWarning: invalid escape sequence '\W'
+  Windows :  pyinstaller build.spec   →  dist\WeeklyReportMaker.exe
+330 INFO: Module search paths (PYTHONPATH):
+['D:\\02-aitt_claude_agent\\fc-desktop-apps\\apps\\weekly-report',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\python313.zip',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\DLLs',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\win32',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\win32\\lib',
+ 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\Pythonwin',
+ 'D:\\02-aitt_claude_agent\\fc-desktop-apps\\apps\\weekly-report']
+760 INFO: Appending 'datas' from .spec
+762 INFO: checking Analysis
+784 INFO: Building because excludes changed
+784 INFO: Looking for Python shared library...
+784 INFO: Using Python shared library: C:\Users\游豐兆\AppData\Local\Programs\Python\Python313\python313.dll
+784 INFO: Running Analysis Analysis-00.toc
+784 INFO: Target bytecode optimization level: 0
+784 INFO: Initializing module dependency graph...
+786 INFO: Initializing module graph hook caches...
+799 INFO: Analyzing modules for base_library.zip ...
+1940 INFO: Processing standard module hook 'hook-encodings.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+2335 INFO: Processing standard module hook 'hook-math.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+2488 INFO: Processing standard module hook 'hook-heapq.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+3431 INFO: Processing standard module hook 'hook-pickle.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+4742 INFO: Caching module dependency graph...
+4792 INFO: Analyzing D:\02-aitt_claude_agent\fc-desktop-apps\apps\weekly-report\app.py
+4874 INFO: Processing standard module hook 'hook-_ctypes.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+4884 INFO: Processing standard module hook 'hook-PIL.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+5003 INFO: Processing standard module hook 'hook-PIL.Image.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+5367 INFO: Processing standard module hook 'hook-xml.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+5372 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+5455 INFO: Processing standard module hook 'hook-xml.dom.domreg.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+6336 INFO: Processing standard module hook 'hook-platform.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+6353 INFO: Processing standard module hook 'hook-sysconfig.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+6397 INFO: Processing standard module hook 'hook-webbrowser.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+6621 INFO: Processing standard module hook 'hook-PIL.ImageFilter.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+6957 INFO: Processing standard module hook 'hook-pptx.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+7513 INFO: Processing standard module hook 'hook-lxml.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+7865 INFO: Processing standard module hook 'hook-lxml.etree.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+8003 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+8005 INFO: SetuptoolsInfo: initializing cached setuptools info...
+11763 INFO: Processing pre-find-module-path hook 'hook-tkinter.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\pre_find_module_path'
+11765 INFO: TclTkInfo: initializing cached Tcl/Tk info...
+12145 INFO: Processing standard module hook 'hook-_tkinter.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+12221 INFO: Processing module hooks (post-graph stage)...
+12375 INFO: Processing standard module hook 'hook-difflib.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+12802 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+13800 INFO: Processing standard module hook 'hook-charset_normalizer.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+14142 INFO: Processing standard module hook 'hook-lxml.isoschematron.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+14441 INFO: Processing standard module hook 'hook-PIL.SpiderImagePlugin.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+14483 INFO: Processing standard module hook 'hook-_tkinter.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks'
+14486 INFO: Processing standard module hook 'hook-lxml.objectify.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+14502 INFO: Performing binary vs. data reclassification (948 entries)
+14686 INFO: Looking for ctypes DLLs
+14711 INFO: Analyzing run-time hooks ...
+14714 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+14717 INFO: Including run-time hook 'pyi_rth__tkinter.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+14719 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+14723 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'C:\\Users\\游豐兆\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+14745 INFO: Creating base_library.zip...
+14760 INFO: Looking for dynamic libraries
+15230 INFO: Extra DLL search directories (AddDllDirectory): []
+15230 INFO: Extra DLL search directories (PATH): []
+15856 INFO: Warnings written to D:\02-aitt_claude_agent\fc-desktop-apps\apps\weekly-report\build\build\warn-build.txt
+15884 INFO: Graph cross-reference written to D:\02-aitt_claude_agent\fc-desktop-apps\apps\weekly-report\build\build\xref-build.html
+15919 INFO: checking PYZ
+15988 INFO: checking PKG
+16017 INFO: Building because toc changed
+16017 INFO: Building PKG (CArchive) WeeklyReportMaker.pkg
+21133 INFO: Building PKG (CArchive) WeeklyReportMaker.pkg completed successfully.
+21147 INFO: Bootloader C:\Users\游豐兆\AppData\Local\Programs\Python\Python313\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\runw.exe
+21147 INFO: checking EXE
+21155 INFO: Building because toc changed
+21155 INFO: Building EXE from EXE-00.toc
+21158 INFO: Copying bootloader EXE to D:\02-aitt_claude_agent\fc-desktop-apps\apps\weekly-report\dist\WeeklyReportMaker.exe
+21240 INFO: Copying icon to EXE
+21301 INFO: Copying 0 resources to EXE
+21301 INFO: Embedding manifest in EXE
+21370 INFO: Appending PKG archive to EXE
+21707 INFO: Fixing EXE headers
+22368 INFO: Building EXE from EXE-00.toc completed successfully.
+22383 INFO: Build complete! The results are available in: D:\02-aitt_claude_agent\fc-desktop-apps\apps\weekly-report\dist

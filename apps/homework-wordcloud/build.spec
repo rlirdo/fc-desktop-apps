@@ -40,6 +40,10 @@ datas += [(src, dst) for src, dst in collect_data_files('jieba')
 # wordcloud：stopwords ＋ 內建 DroidSansMono.ttf
 datas += collect_data_files('wordcloud')
 
+# python-pptx：templates/（default.pptx、notesMaster.xml…）在 macOS 端不會被 hook 自動帶入，
+# 無條件收集，否則 notes_slide 會 FileNotFoundError（CI macos-latest 實測）。
+datas += collect_data_files('pptx')
+
 # ---------------------------------------------------------------- 模組
 hiddenimports = [
     'jieba', 'jieba.finalseg', 'jieba.finalseg.prob_start',
