@@ -26,6 +26,12 @@ if os.path.exists(os.path.join(HERE, "icon.ico")):
 # 無條件收集，否則 notes_slide 會 FileNotFoundError（CI macos-latest 實測）。
 from PyInstaller.utils.hooks import collect_data_files
 datas += collect_data_files("pptx")
+# 再以實際檔案系統逐檔加入（雙保險），並印出數量供 CI 記錄比對
+import pptx as _pptx
+_tpl = os.path.join(os.path.dirname(_pptx.__file__), "templates")
+_tpl_files = [(os.path.join(_tpl, f), os.path.join("pptx", "templates")) for f in os.listdir(_tpl)]
+datas += _tpl_files
+print("[spec] pptx templates 逐檔加入 %d 個：%s" % (len(_tpl_files), sorted(os.listdir(_tpl))))
 
 a = Analysis(
     [os.path.join(HERE, "app.py")],

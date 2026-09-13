@@ -45,6 +45,14 @@ jobs:
           $p = Start-Process -FilePath $exe -ArgumentList "--selftest" -Wait -PassThru -NoNewWindow
           Get-ChildItem -Recurse -Filter "*selftest*.log" -ErrorAction SilentlyContinue | ForEach-Object { Get-Content $_.FullName }
           if ($p.ExitCode -ne 0) { throw "packaged selftest failed: $($p.ExitCode)" }
+      - name: Diagnose (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          echo "== wheel templates =="; python -c "import pptx,os;print(sorted(os.listdir(os.path.join(os.path.dirname(pptx.__file__),'templates'))))" || true
+          echo "== dist tree =="; find dist -maxdepth 4 | head -40
+          for B in "dist/${{ matrix.app.name }}" "dist/${{ matrix.app.name }}.app/Contents/MacOS/${{ matrix.app.name }}"; do
+            if [ -f "$B" ]; then echo "== archive: $B =="; pyi-archive_viewer -l "$B" 2>/dev/null | grep -i "templates" | head -20 || echo "(grep 無結果)"; fi
+          done
       - name: Selftest (packaged, macOS)
         if: runner.os == 'macOS'
         run: |
