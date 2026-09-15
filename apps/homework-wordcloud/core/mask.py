@@ -35,6 +35,7 @@ SID9 = re.compile(r"^\d{9}$")
 # 掃描用：前後都不可以是英數底線，避免把 PyInstaller 的 _MEI000105442
 # 這類暫存路徑誤判成學號（真正的學號在 CSV/JSON 欄位裡一定是獨立的）
 SID9_IN_TEXT = re.compile(r"(?<![0-9A-Za-z_])\d{9}(?![0-9A-Za-z_])")
+DIGIT_RUN = re.compile(r"\d{9,}")   # 遮罩用：文字內任何 ≥9 碼數字串
 
 # 電子郵件
 EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
@@ -97,7 +98,8 @@ def mask_ids_in_text(t):
     """把自由文字裡夾帶的 9 碼學號與電子郵件也換成等長的 O。"""
     if not isinstance(t, str) or not t:
         return t
-    t = SID9_IN_TEXT.sub(lambda m: "O" * len(m.group(0)), t)
+    # 學號可能與其他字黏在一起（「4113xxxxx115-1」），遮罩時用無邊界的 ≥9 碼；掃描仍用 SID9_IN_TEXT
+    t = DIGIT_RUN.sub(lambda m: "O" * len(m.group(0)), t)
     t = EMAIL.sub(lambda m: "O" * len(m.group(0)), t)
     return t
 

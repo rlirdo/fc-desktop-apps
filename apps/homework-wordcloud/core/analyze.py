@@ -162,7 +162,11 @@ def clean(t):
 def is_valid(t):
     if not t or PUNCT_ONLY.match(t):
         return False
-    return t.strip() not in PLACEHOLDER
+    s = t.strip()
+    # 遮罩殘影（OOO…）與長數字串（學號、電話）不當概念
+    if "OOO" in s or re.search(r"\d{8,}", s):
+        return False
+    return s not in PLACEHOLDER
 
 
 def tokens(t):

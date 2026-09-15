@@ -50,6 +50,8 @@ LINK_SHEET_HEADERS = ("學生編號", "姓名", "學號（原）", "電子郵件
 _CJK = "㐀-䶿一-鿿豈-﫿"
 NAME_RUN = re.compile(f"[{_CJK}]{{2,}}")            # 連續 2 個以上中文字
 STUDENT_ID_RE = re.compile(r"^\d{9}$")               # 9 碼學號
+DIGIT_RUN_RE = re.compile(r"\d{9,}")                  # 文字內 ≥9 碼數字串（學號黏在句子裡也抓）
+EMAIL_IN_TEXT_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 ID_HEADER_PAT = re.compile(r"(學號|學生證號|student\s*(id|no))", re.I)
 EMAIL_HEADER_PAT = re.compile(r"(電子郵件|電子信箱|電郵|信箱|e-?mail|mail)", re.I)
 NAME_HEADER = "姓名"
@@ -204,6 +206,13 @@ def replace_names_in_text(text, pairs):
     if not isinstance(text, str) or not text:
         return text, 0
     hits = 0
+    # 自由文字裡夾帶的學號（≥9 碼數字串，可能與其他字黏在一起，例「4113xxxxx115-1 EC」）
+    # 與電子郵件，一律換成等長的 O（2026/09/16 W02 實測：知情同意書/智財題學生會自己打學號）
+    def _o(m):
+        return "O" * len(m.group(0))
+    text, n1 = DIGIT_RUN_RE.subn(_o, text)
+    text, n2 = EMAIL_IN_TEXT_RE.subn(_o, text)
+    hits += n1 + n2
     long_pairs = [(n, v) for n, v in pairs if len(n) >= 3]
     short_pairs = dict((n, v) for n, v in pairs if len(n) < 3)
 
