@@ -1,15 +1,32 @@
 # -*- coding: utf-8 -*-
 """
-analyze.py — 吃某週資料夾內的 Q*.csv，產出 analysis.json ＋ summary.md
+analyze.py — 吃某週資料夾內的 Q*.csv，產出每題分析。（2.0）
 
-流程：
-  1. 清理：去掉網址、空白、純符號、以及「無／未作答」這類佔位答案。
-  2. 斷詞：jieba ＋ 課程自訂詞（config.json 的 user_words）＋ 停用詞表。
-  3. 詞頻：每題 TOP-N 關鍵詞、每個子題 TOP-N、全班 TOP10。
-  4. 統計：每題作答人數／全班人數／作答率／有效列數／平均字數。
-  5. 常見問題：答案裡帶問號或「不懂／為什麼」等字樣的句子。
+2.0 新增（**決定性演算法，離線可跑，不依賴任何 LLM／API**）：
+  1. 三個重點與概念矩陣
+     - 概念候選＝jieba 詞頻 TOP（沿用 user_words／stopwords）。
+     - 重點＝前 3 名「提及人數」最高的概念；同分以詞頻決，再同分以字典序決。
+     - 概念矩陣：列＝學生編號、欄＝3 個重點概念，值 1／0（含 config.json 的 synonyms）。
+       輸出 `Q0N_concept_matrix.csv`。
+     - 覆蓋率：每個概念＝提及人數／作答人數；整體覆蓋率＝至少提到 1 個重點的比例；
+       另算「三個都提到」的比例。
+  2. 提問抽取與兩類分類
+     - **提問句判定（寧缺勿濫）**：句尾是 ？／?，或句尾是 嗎／呢，
+       或句子**開頭**就是疑問詞（為什麼／如何／怎麼／是否／什麼是／哪些…，
+       英文 Why／How／What／Is／Can…）。
+       句中含疑問詞但屬陳述句的**不算**，例如
+       「了解物質是由原子組成，以及原子如何組成不同物質」。
+     - 兩類（規則式，關鍵詞可在 config.json 的 question_types 改）：
+         概念理解類：為什麼／為何／原理／定義／意義／差別／不同／關係／機制／
+                     是什麼／重要／有何／何者／哪一項／Why／What…
+         操作應用類：怎麼／如何／步驟／公式／單位／計算／方法／應用／例子／
+                     實驗／儀器／測量／How…
+       兩類都沒中時走後備規則（含 什麼／嗎／為／Why → 概念理解類），
+       再沒中才計入「其他」。
+     - 統計各類提問數、提問人數、代表句（≤40 字，已去識別化）。
+       輸出 `Q0N_questions.csv`（學生編號、提問句、分類）。
 
-所有輸入都已經是遮罩版 CSV，這裡不再碰任何真實姓名。
+所有輸入都已經是去識別化 CSV（學生編號＋遮罩姓名＋全 O 學號），這裡不再碰任何真實姓名。
 """
 import os
 import re
@@ -21,7 +38,6 @@ from collections import Counter, defaultdict
 import jieba
 
 # ---------------------------------------------------------------- 內建詞典
-# 通用版只放「理工／環境課程常見」的基本詞，其餘請寫進 config.json 的 user_words。
 BASE_USER_WORDS = [
     "綠色化學", "十二原則", "綠色化學十二原則", "原子經濟", "原子經濟性", "綠色溶劑",
     "催化劑", "再生原料", "可分解", "即時分析", "廢棄物", "減量", "廢棄物減量",
@@ -47,6 +63,9 @@ a b c d e f 1 2 3 4 5 6 7 8 9 0 無 沒 不 要 想 做 看 用 說 好 多 少 
 無正解 未作答 空白 以上 例如 像是 尤其 甚至 只是 而且 如果 雖然 因此 這些 那些 一樣 一起
 今天 現在 目前 之類 等等 這樣 那樣 一下 有點 覺 得 我的 他的 她的 它的 自身 本身
 我用 我會 我想 我請 我跟 我和 我在 我有 讓我 他們 以下 一項 這一 那一 其他 另外
+開始 影響 減少 想到 提到 變成 用在 一定 大家 重要 有效 印象 深刻 最多 一直 地方
+情形 樣子 之類 有關 相關 直接 常常 幫我 拿來 看到 聽到 發現 注意 特別 完全 到底
+不要 就是 一開始 很多 有些 盡量 造成 用來 這一項 不如 出來 起來 下來 過來 很難
 """.split())
 
 # 學生常把題目代號寫在答案開頭（1a、C2、3.、(1)…），這些 token 會污染文字雲
@@ -65,29 +84,74 @@ PLACEHOLDER = {"無", "沒有", "未作答", "無正解", "空白", "已作答",
 QUESTION_MARK = ["?", "？", "不懂", "不太懂", "為什麼", "不確定", "不知道", "想知道",
                  "好奇", "困惑", "不清楚", "是不是", "會不會", "怎麼辦"]
 
-# 選擇題的「回答」其實是選項文字，全班都一樣，放進文字雲只會洗版。
-# 因此文字雲與詞頻只吃開放文字題；選擇題改成統計選項分佈。
-CHOICE_SUB = re.compile(r"(單選|多選|是非|排序|評分|順序)")
+# ---------------------------------------------------------------- 提問抽取
+SENT_END = "。！!？?；;\n"
 
+# 判定「這句是不是提問」——寧可漏抓也不要把陳述句當提問。
+# 反例（**不算**提問）：「了解物質是由原子組成，以及原子如何組成不同物質」
+#                       「理解物質的微觀結構如何決定性質」
+# 這兩句都含疑問詞，但句子是陳述句，所以只靠「句中含疑問詞」會大量誤判。
+#
+# 規則（三選一才算提問）：
+#   1. 句尾是 ？ 或 ?
+#   2. 句尾是 嗎／呢（可以沒有問號）
+#   3. 句子**開頭**就是疑問詞（前面可以有「請問」「我想知道」這類引導語）
+QUESTION_END = re.compile(r"[？?]\s*$")
+QUESTION_TAIL = re.compile(r"(嗎|呢)[\s。.!！~～]*$")
 
-def is_open_text(sub_label):
-    """子題號像「第2題:單選題」→ False；「第1題:問答題」→ True。"""
-    return not CHOICE_SUB.search(sub_label or "")
+Q_LEAD_PREFIX = r"(?:我?(?:很|想|好)?(?:請問|想問|想知道|好奇|不懂|不清楚|不確定)[，,、：:\s]*)?"
+Q_WORDS = ("為什麼|為何|如何|怎麼|怎樣|怎麼樣|是否|什麼是|什麼叫|甚麼是|"
+           "哪些|哪個|哪一|哪裡|可否|能不能|可不可以|有沒有|是不是|會不會")
+QUESTION_LEAD = re.compile(r"^" + Q_LEAD_PREFIX + r"(?:" + Q_WORDS + r")")
+QUESTION_LEAD_EN = re.compile(
+    r"^(why|how|what|which|who|whom|whose|when|where|is|are|am|was|were|"
+    r"can|could|do|does|did|should|would|will|shall|may|might|have|has)\b", re.I)
+
+DEFAULT_QUESTION_TYPES = {
+    "概念理解類": ["為什麼", "為何", "原理", "定義", "意義", "差別", "差異", "不同", "關係", "機制", "是什麼", "什麼是", "重要", "有何", "原因", "是否", "是不是", "會不會", "何者", "哪一項", "哪一個", "哪項", "哪一種", "哪裡", "本質", "特性", "區別", "正確", "Why", "What"],
+    "操作應用類": ["怎麼", "如何", "怎樣", "步驟", "公式", "單位", "計算", "方法", "辦法", "應用", "例子", "實驗", "儀器", "操作", "數值", "測量", "分別", "幾次方", "How"],
+}
+# 後備規則：已判定為提問、但兩類關鍵詞都沒中的句子，含這些字就歸概念理解類，
+# 其餘才真的算「其他」。（目標：其他 ≤ 總提問的兩成）
+FALLBACK_CONCEPT = ["什麼", "嗎", "為", "why", "甚麼"]
+OTHER_TYPE = "其他"
+
+# 選擇題／測驗題的「回答」是選項文字或「答對／答錯」，全班都一樣，
+# 放進文字雲只會洗版；因此文字雲、詞頻與概念矩陣只吃開放文字題。
+CHOICE_SUB = re.compile(r"(單選|多選|是非|排序|評分|順序|測驗)")
+
+# 測驗型子題的答案字樣（用來算答對率）
+CORRECT_WORDS = {"答對", "正確", "對", "O", "o", "✓", "V", "v"}
+WRONG_WORDS = {"答錯", "錯誤", "錯", "X", "x", "✗"}
 
 # 模組層狀態（load_dict 會依 config 覆寫）
 STOPWORDS = set(BASE_STOPWORDS)
 KEEP_SHORT = set(BASE_KEEP_SHORT)
+SYNONYMS = {}
+QUESTION_TYPES = dict(DEFAULT_QUESTION_TYPES)
 _LOADED = False
 
 
-def load_dict(user_words=None, stopwords_extra=None, keep_short=None):
-    """把課程自訂詞灌進 jieba，並合併停用詞／短詞白名單。可重複呼叫。"""
-    global STOPWORDS, KEEP_SHORT, _LOADED
+def load_dict(user_words=None, stopwords_extra=None, keep_short=None,
+              synonyms=None, question_types=None):
+    """把課程自訂詞灌進 jieba，並合併停用詞／短詞白名單／同義詞／提問關鍵詞。"""
+    global STOPWORDS, KEEP_SHORT, SYNONYMS, QUESTION_TYPES, _LOADED
     for w in list(BASE_USER_WORDS) + list(user_words or []):
         if w:
             jieba.add_word(w, freq=100000)
+    for c, syns in (synonyms or {}).items():
+        jieba.add_word(c, freq=100000)
+        for s in syns or []:
+            if s:
+                jieba.add_word(s, freq=100000)
     STOPWORDS = set(BASE_STOPWORDS) | set(stopwords_extra or [])
     KEEP_SHORT = set(BASE_KEEP_SHORT) | set(keep_short or [])
+    SYNONYMS = {k: list(v or []) for k, v in (synonyms or {}).items()}
+    qt = {k: list(v) for k, v in DEFAULT_QUESTION_TYPES.items()}
+    for k, v in (question_types or {}).items():
+        if v:
+            qt[k] = list(v)
+    QUESTION_TYPES = qt
     _LOADED = True
 
 
@@ -127,59 +191,311 @@ def freq_of(texts):
     return f
 
 
+def student_key(r):
+    """學生主鍵：學生編號優先，否則退回學號／姓名。"""
+    return (r.get("學生編號") or "").strip() or (r.get("學號") or "").strip() \
+        or (r.get("姓名") or "").strip()
+
+
 def speakers_by_word(rows):
     """{詞: 提到這個詞的同學人數}。用斷詞結果計算，才會和詞頻同一套標準。"""
     d = defaultdict(set)
     for r in rows:
-        sid = r["學號"] or r["姓名"]
         for w in set(tokens(r["作答內容"])):
-            d[w].add(sid)
+            d[w].add(student_key(r))
     return {w: len(v) for w, v in d.items()}
 
 
-def analyse_dir(work_dir, index=None, top_n=15, log=print):
-    """讀 work_dir 下的 Q*.csv，寫出 analysis.json 與 summary.md，回傳 result dict。"""
+# ---------------------------------------------------------------- 題型判斷
+def is_open_text(sub_label):
+    """只看子題號：「第2題:單選題」→ False；「第1題:問答題」→ True。"""
+    return not CHOICE_SUB.search(sub_label or "")
+
+
+def sub_is_open(sub_label, texts):
+    """看子題號＋實際答案內容決定是不是「開放文字」。
+
+    測驗題目型匯出的子題號只是「第1題」，但答案是「答對／答錯」；
+    選擇題的答案是少數幾個固定選項。這兩種都不做文字雲與概念矩陣。
+    """
+    if not is_open_text(sub_label):
+        return False
+    vals = [str(t or "").strip() for t in texts]
+    vals = [v for v in vals if v]
+    if not vals:
+        return False
+    uniq = set(vals)
+    if len(uniq) <= 6 and max(len(v) for v in uniq) <= 12:
+        return False                       # 答對/答錯、(1)男/(2)女 這種
+    if sum(len(v) for v in vals) / len(vals) < 8:
+        return False                       # 平均不到 8 個字，不值得做文字分析
+    return True
+
+
+def open_sub_labels(rows):
+    """回傳這一題裡「算開放文字」的子題號集合。CSV 列 → set(子題號)。"""
+    per = defaultdict(list)
+    for r in rows:
+        per[r.get("子題號", "")].append(r.get("作答內容", ""))
+    return {lab for lab, texts in per.items() if sub_is_open(lab, texts)}
+
+
+# ---------------------------------------------------------------- 概念矩陣
+def canon_map():
+    """{任一寫法: 正式概念名}。"""
+    m = {}
+    for c, syns in SYNONYMS.items():
+        m[c] = c
+        for s in syns:
+            m[s] = c
+    return m
+
+
+def variants_of(concept):
+    return [concept] + [s for s in SYNONYMS.get(concept, []) if s]
+
+
+def code_sort_key(code):
+    """115-1_EC_2 要排在 115-1_EC_10 前面。"""
+    m = re.search(r"_(\d+)$", code or "")
+    return (0, int(m.group(1))) if m else (1, 0, code or "")
+
+
+def pick_concepts(rows, top_n=3, pool=40):
+    """回傳 (concepts, per_student, freq)。
+
+    concepts   = [概念名]，依「提及人數」由多到少（同分比詞頻，再比字典序）
+    per_student= {學生編號: (token集合, 原文)}
+    """
+    per_student = {}
+    for r in rows:
+        k = student_key(r)
+        toks, text = per_student.get(k, (set(), ""))
+        t = r["作答內容"]
+        per_student[k] = (toks | set(tokens(t)), text + " " + t)
+
+    freq = Counter()
+    for t in (r["作答內容"] for r in rows):
+        freq.update(tokens(t))
+
+    cm = canon_map()
+    cfreq = Counter()
+    for w, c in freq.items():
+        cfreq[cm.get(w, w)] += c
+
+    cands = [w for w, _ in cfreq.most_common(pool)]
+    speakers = {}
+    for c in cands:
+        vs = variants_of(c)
+        s = set()
+        for k, (toks, text) in per_student.items():
+            if any((v in toks) or (v and v in text) for v in vs):
+                s.add(k)
+        speakers[c] = s
+
+    ranked = sorted(cands, key=lambda w: (-len(speakers[w]), -cfreq[w], w))
+    return ranked[:top_n], per_student, cfreq, speakers
+
+
+def concept_matrix(concepts, per_student):
+    """回傳 (學生編號排序清單, {學生編號: [0/1,...]})。"""
+    keys = sorted(per_student.keys(), key=code_sort_key)
+    mat = {}
+    for k in keys:
+        toks, text = per_student[k]
+        mat[k] = [1 if any((v in toks) or (v and v in text) for v in variants_of(c)) else 0
+                  for c in concepts]
+    return keys, mat
+
+
+def write_concept_matrix(path, concepts, keys, mat):
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["學生編號"] + list(concepts) + ["提到重點數"])
+        for k in keys:
+            row = mat[k]
+            w.writerow([k] + row + [sum(row)])
+
+
+# ---------------------------------------------------------------- 提問
+def sentences(text):
+    out, buf = [], ""
+    for ch in str(text or ""):
+        buf += ch
+        if ch in SENT_END:
+            if buf.strip():
+                out.append(buf.strip())
+            buf = ""
+    if buf.strip():
+        out.append(buf.strip())
+    return out
+
+
+def is_question_sentence(s):
+    """句尾問號／句尾嗎呢／句首疑問詞，三者之一才算提問（陳述句不算）。"""
+    t = str(s or "").strip()
+    if not t:
+        return False
+    if QUESTION_END.search(t):
+        return True
+    if QUESTION_TAIL.search(t):
+        return True
+    if QUESTION_LEAD.match(t):
+        return True
+    return bool(QUESTION_LEAD_EN.match(t))
+
+
+def _kw_hits(s, keywords):
+    """關鍵詞命中數；英數關鍵詞不分大小寫。"""
+    low = s.lower()
+    n = 0
+    for k in keywords:
+        if not k:
+            continue
+        n += 1 if ((k.lower() in low) if k.isascii() else (k in s)) else 0
+    return n
+
+
+def classify_question(s):
+    """規則式兩類分類；兩類都沒中就走後備規則，再沒中才算「其他」。"""
+    best, best_hits = OTHER_TYPE, 0
+    for name in QUESTION_TYPES:                     # dict 保序，概念理解類在前
+        hits = _kw_hits(s, QUESTION_TYPES[name])
+        if hits > best_hits:
+            best, best_hits = name, hits
+    if best_hits:
+        return best, best_hits
+    if _kw_hits(s, FALLBACK_CONCEPT):
+        # 後備：是問句但沒中關鍵詞，含「什麼／嗎／為／Why」→ 概念理解類
+        first = next(iter(QUESTION_TYPES), OTHER_TYPE)
+        return first, 0
+    return OTHER_TYPE, 0
+
+
+def tidy_question(s, limit=40):
+    s = re.sub(r"\s+", " ", str(s or "")).strip()
+    s = s.lstrip("，,、。 ")
+    return s[:limit] + ("…" if len(s) > limit else "")
+
+
+def extract_questions(rows):
+    """回傳 (records, stats)。
+
+    records = [{"學生編號", "提問句", "分類"}]
+    stats   = {類別: {"提問數", "提問人數", "代表句"}}（含「其他」）
+    """
+    recs = []
+    for r in rows:
+        k = student_key(r)
+        for s in sentences(r["作答內容"]):
+            if not is_question_sentence(s):
+                continue
+            cat, hits = classify_question(s)
+            recs.append({"學生編號": k, "提問句": tidy_question(s, 120),
+                         "分類": cat, "_hits": hits, "_len": len(s)})
+
+    stats = {}
+    for name in list(QUESTION_TYPES.keys()) + [OTHER_TYPE]:
+        sub = [x for x in recs if x["分類"] == name]
+        rep = ""
+        if sub:
+            pick = sorted(sub, key=lambda x: (-x["_hits"], x["_len"], x["提問句"]))[0]
+            rep = tidy_question(pick["提問句"], 40)
+        stats[name] = {"提問數": len(sub),
+                       "提問人數": len({x["學生編號"] for x in sub}),
+                       "代表句": rep}
+    for x in recs:
+        x.pop("_hits", None)
+        x.pop("_len", None)
+    return recs, stats
+
+
+def write_questions(path, recs):
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["學生編號", "提問句", "分類"])
+        for x in recs:
+            w.writerow([x["學生編號"], x["提問句"], x["分類"]])
+
+
+# ---------------------------------------------------------------- 主流程
+def analyse_dir(work_dir, index=None, top_n=15, top_concepts=3, log=print):
+    """讀 work_dir 下的 Q*.csv，寫出 analysis.json、summary.md 與每題兩份 CSV。"""
     meta = {r["題號"]: r for r in (index or [])}
-    # 只存資料夾名稱，不存完整本機路徑（輸出可能會分享出去）
     result = {"資料夾": os.path.basename(os.path.normpath(work_dir)), "題目": []}
     all_freq = Counter()
     all_questions = []
 
-    for path in sorted(glob.glob(os.path.join(work_dir, "Q*.csv"))):
+    paths = [p for p in sorted(glob.glob(os.path.join(work_dir, "Q*.csv")))
+             if not os.path.basename(p).endswith(("_concept_matrix.csv", "_questions.csv"))]
+
+    for path in paths:
         qno = os.path.basename(path)[:3]
         with open(path, encoding="utf-8-sig", newline="") as f:
             rows = list(csv.DictReader(f))
+
+        cleaned = []
+        for r in rows:
+            t = clean(r.get("作答內容", ""))
+            if not is_valid(t):
+                continue
+            cleaned.append(dict(r, 作答內容=t))
+
+        open_labels = open_sub_labels(cleaned)
         valid_rows, texts = [], []
         per_sub = defaultdict(list)
         students = set()
-        for r in rows:
-            t = clean(r["作答內容"])
-            if not is_valid(t):
-                continue
-            r = dict(r, 作答內容=t)
-            per_sub[(r["子題號"], r["子題題目"])].append(r)
-            students.add(r["學號"] or r["姓名"])
-            if is_open_text(r["子題號"]):     # 選擇題不進文字雲／詞頻
+        for r in cleaned:
+            per_sub[(r["子題號"], r.get("子題題目", ""))].append(r)
+            students.add(student_key(r))
+            if r["子題號"] in open_labels:
                 valid_rows.append(r)
-                texts.append(t)
+                texts.append(r["作答內容"])
 
         freq = freq_of(texts)
         all_freq.update(freq)
+
+        # ---- 概念矩陣與覆蓋率
+        concepts, per_student, cfreq, cspk = pick_concepts(valid_rows, top_n=top_concepts)
+        keys, mat = concept_matrix(concepts, per_student)
+        n_ans = len(keys)
+        cm_name = f"{qno}_concept_matrix.csv"
+        if concepts:
+            write_concept_matrix(os.path.join(work_dir, cm_name), concepts, keys, mat)
+        else:
+            write_concept_matrix(os.path.join(work_dir, cm_name), [], keys, mat)
+
+        focus = []
+        for i, c in enumerate(concepts):
+            hit = sum(mat[k][i] for k in keys)
+            focus.append({"概念": c, "提及人數": hit, "次數": int(cfreq.get(c, 0)),
+                          "覆蓋率": round(hit / n_ans, 3) if n_ans else 0.0})
+        any_hit = sum(1 for k in keys if any(mat[k])) if concepts else 0
+        all_hit = sum(1 for k in keys if concepts and all(mat[k])) if concepts else 0
+        overall = round(any_hit / n_ans, 3) if n_ans else 0.0
+        all3 = round(all_hit / n_ans, 3) if n_ans else 0.0
+
+        # ---- 提問抽取與分類
+        qrecs, qstats = extract_questions(valid_rows)
+        q_name = f"{qno}_questions.csv"
+        write_questions(os.path.join(work_dir, q_name), qrecs)
+
         questions = [t[:60] for t in texts if any(k in t for k in QUESTION_MARK)]
         all_questions += questions
 
         subs = []
         for (label, text), items in per_sub.items():
             itexts = [r["作答內容"] for r in items]
+            is_open = label in open_labels
             sub = {
                 "子題號": label,
                 "子題題目": text,
-                "型別": "開放文字" if is_open_text(label) else "選擇題",
+                "型別": "開放文字" if is_open else "選擇題／測驗",
                 "有效作答數": len(items),
-                "作答人數": len({r["學號"] or r["姓名"] for r in items}),
+                "作答人數": len({student_key(r) for r in items}),
                 "平均字數": round(sum(len(t) for t in itexts) / max(len(itexts), 1), 1),
             }
-            if is_open_text(label):
+            if is_open:
                 sub["TOP詞"] = freq_of(itexts).most_common(12)
             else:
                 c = Counter(itexts)
@@ -187,6 +503,12 @@ def analyse_dir(work_dir, index=None, top_n=15, log=print):
                 sub["選項分佈"] = [{"選項": o, "人數": k,
                                  "百分比": round(k * 100.0 / max(len(itexts), 1), 1)}
                                 for o, k in c.most_common()]
+                # 測驗型（答案只有 答對／答錯）才算得出答對率
+                right = sum(1 for t in itexts if t.strip() in CORRECT_WORDS)
+                wrong = sum(1 for t in itexts if t.strip() in WRONG_WORDS)
+                if right + wrong == len(itexts) and len(itexts):
+                    sub["答對率"] = round(right * 100.0 / len(itexts), 1)
+                    sub["答對人數"] = right
             subs.append(sub)
 
         m = meta.get(qno, {})
@@ -199,6 +521,7 @@ def analyse_dir(work_dir, index=None, top_n=15, log=print):
             "題號": qno,
             "題目": m.get("題目", qno),
             "題型": m.get("題型", ""),
+            "測驗型": bool(m.get("測驗型")) or not open_labels,
             "來源檔": m.get("來源檔", ""),
             "作答人數": answered,
             "全班人數": klass,
@@ -206,17 +529,37 @@ def analyse_dir(work_dir, index=None, top_n=15, log=print):
             "原始列數": len(rows),
             "有效列數": sum(len(v) for v in per_sub.values()),
             "文字列數": len(texts),
+            "文字作答人數": n_ans,
             "平均字數": round(sum(len(t) for t in texts) / max(len(texts), 1), 1),
             "總詞數": sum(freq.values()),
             "相異詞數": len(freq),
             "TOP詞": freq.most_common(top_n),
             "TOP詞明細": top_rows,
+            "重點概念": focus,
+            "整體覆蓋率": overall,
+            "三個都提到比例": all3,
+            "概念矩陣檔": cm_name,
+            "概念矩陣": {k: mat[k] for k in keys},
+            "提問統計": [{"類別": name, **qstats[name]} for name in QUESTION_TYPES],
+            "其他提問數": qstats[OTHER_TYPE]["提問數"],
+            "提問總數": len(qrecs),
+            "提問人數": len({x["學生編號"] for x in qrecs}),
+            "提問檔": q_name,
             "常見問題": questions[:5],
             "子題": subs,
         })
         log(f"  {qno} 原始 {len(rows)} 列 → 有效 {sum(len(v) for v in per_sub.values())} 列"
-            f"（其中開放文字 {len(texts)} 列），子題 {len(subs)}，"
-            f"TOP 詞 = {[w for w, _ in freq.most_common(5)]}")
+            f"（開放文字 {len(texts)} 列／{n_ans} 人），子題 {len(subs)}")
+        if concepts:
+            log(f"       三個重點 = " +
+                "、".join(f"{d['概念']}({d['提及人數']}人/{round(d['覆蓋率'] * 100)}%)"
+                         for d in focus) +
+                f"；整體覆蓋率 {round(overall * 100)}%；三個都提到 {round(all3 * 100)}%")
+        else:
+            log("       本題無開放文字作答（選擇題／測驗型），不做概念矩陣與文字雲。")
+        log(f"       提問 {len(qrecs)} 則／{len({x['學生編號'] for x in qrecs})} 人：" +
+            "、".join(f"{name} {qstats[name]['提問數']} 則" for name in QUESTION_TYPES) +
+            f"、其他 {qstats[OTHER_TYPE]['提問數']} 則")
 
     result["全班重點TOP10"] = all_freq.most_common(10)
     result["常見問題TOP5"] = all_questions[:5]
@@ -231,26 +574,39 @@ def write_outputs(result, work_dir, course_name="", week_label=""):
          f"- 資料夾：`{result.get('資料夾', '')}`",
          f"- 題數：{len(result['題目'])}",
          "",
-         "## 各題作答率", "",
-         "| 題號 | 題目 | 題型 | 作答/全班 | 作答率 | 有效列數 | 平均字數 |",
+         "## 各題作答率與概念覆蓋率", "",
+         "| 題號 | 題目 | 作答/全班 | 作答率 | 整體覆蓋率 | 三個都提到 | 提問數 |",
          "|---|---|---|---|---|---|---|"]
     for q in result["題目"]:
-        L.append(f"| {q['題號']} | {q['題目']} | {q['題型']} | "
-                 f"{q['作答人數']}/{q['全班人數']} | {q['作答率']}% | "
-                 f"{q['有效列數']} | {q['平均字數']} |")
+        L.append(f"| {q['題號']} | {q['題目']} | {q['作答人數']}/{q['全班人數']} | "
+                 f"{q['作答率']}% | {round(q['整體覆蓋率'] * 100, 1)}% | "
+                 f"{round(q['三個都提到比例'] * 100, 1)}% | {q['提問總數']} |")
     L += ["", "## 全班最常出現重點 TOP10", ""]
     for i, (w, c) in enumerate(result["全班重點TOP10"], 1):
         L.append(f"{i}. {w}（{c} 次）")
-    L += ["", "## 各題重點", ""]
+    L += ["", "## 各題三個重點與提問分類", ""]
     for q in result["題目"]:
         L.append(f"### {q['題號']}　{q['題目']}")
+        if q["重點概念"]:
+            L.append("- 三個重點（提及人數／覆蓋率）：" +
+                     "、".join(f"{d['概念']} {d['提及人數']} 人（{round(d['覆蓋率'] * 100, 1)}%）"
+                              for d in q["重點概念"]))
+            L.append(f"- 整體覆蓋率（至少提到 1 個重點）：{round(q['整體覆蓋率'] * 100, 1)}%；"
+                     f"三個都提到：{round(q['三個都提到比例'] * 100, 1)}%")
+            L.append(f"- 概念矩陣：`{q['概念矩陣檔']}`")
+        else:
+            L.append("- 本題沒有開放文字作答（選擇題／測驗型），不做概念矩陣。")
+        for t in q["提問統計"]:
+            L.append(f"- {t['類別']}：{t['提問數']} 則／{t['提問人數']} 人"
+                     + (f"；代表句「{t['代表句']}」" if t["代表句"] else ""))
+        L.append(f"- 其他提問：{q['其他提問數']} 則；提問明細：`{q['提問檔']}`")
         L.append("- TOP 詞：" + "、".join(f"{w}({c})" for w, c in q["TOP詞"][:8]))
         for s in q["子題"]:
             head = f"  - {s['子題號']} {s['子題題目'][:40]}　有效 {s['有效作答數']} 列；"
             if s.get("選項分佈"):
                 L.append(head + "選項分佈：" +
                          "、".join(f"{o['選項']} {o['人數']}人({o['百分比']}%)"
-                                  for o in s["選項分佈"]))
+                                  for o in s["選項分佈"][:6]))
             else:
                 L.append(head + "TOP：" + "、".join(w for w, _ in s["TOP詞"][:6]))
         L.append("")
@@ -258,7 +614,9 @@ def write_outputs(result, work_dir, course_name="", week_label=""):
         L += ["## 同學的疑問（節錄）", ""]
         for i, s in enumerate(result["常見問題TOP5"], 1):
             L.append(f"{i}. {s}")
-    L += ["", "---", "", "> 本檔所有姓名皆已遮罩（第 2 字改 O）。原始 xlsx 僅留在本機 input\\，不得上傳。"]
+    L += ["", "---", "",
+          "> 本檔一律使用學生編號（例 115-1_EC_3），姓名已遮罩、學號已全部改成 O。",
+          "> 「學生編號連結姓名」對照表只能留在本機，不得上傳、不得外流。"]
 
     with open(os.path.join(work_dir, "summary.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(L))

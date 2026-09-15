@@ -1,21 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-deck.py — 產生「同學作答分析-第N周.pptx」（自然科學雜誌風，16:9）
+deck.py — 產生「同學作答分析-第N周.pptx」（自然科學雜誌風，16:9）。（2.0）
 
 頁型：
-    封面 → 總覽（各題人數／作答率表）→ 每題一頁（左文字雲、右 TOP5 關鍵詞卡）→ 結尾
+    封面 → 總覽（各題作答率＋整體覆蓋率）→ **一題一頁** → 附錄概念矩陣（可選）→ 結尾
+
+題頁版面（2.0 新版，必守）：
+    左欄   白色圓角卡：文字雲（等比縮放）＋圖說「圖 N …」
+           選擇題／測驗題沒有文字雲時，改放大數字＋各子題最多人選的選項
+    右上   白色圓角卡「三個重點」：概念｜提及 n 人｜覆蓋率 %，底列整體覆蓋率與三個都提到
+    右下   白色圓角卡「提問分類」：兩類各一行（類別｜提問數｜提問人數）＋代表句
+    底部   navy 圓角橫幅，一句話結論
+    頁尾   左下系列名、右下「N / 總頁數」；右上角 logo
 
 版式規則：
     封面／結尾＝navy 深色頁；內容頁＝#F5F9FA 淺底
-    內容頁：teal 眉標「0N / ENGLISH LABEL」→ 30pt 深色粗體標題 → 斜體灰副標
-    每題頁：左白色圓角卡放文字雲＋圖說，右白色圓角卡放 TOP5 關鍵詞，底部 navy 色帶一句總結
-    頁尾：左下系列名、右下「N / 總頁數」
-    字級：頁標題 30pt、內文 18pt、圖說 14pt（老花眼可讀）
+    內容頁：teal 眉標「0N / ENGLISH LABEL」→ 30pt 深色粗體標題（動詞在前）→ 斜體灰副標
+    字級：頁標題 30pt、卡片內文 13–15pt、圖說 12pt（不小於 11pt）
+    所有單行文字都過 fit_one_line 自動縮字；幾何 QA（layout_scan）要求出界 0、重疊 0
 
 備忘稿：
-    每一頁都寫逐字稿，一句一行（句號後換行），第一人稱口語，數字用口語唸法。
+    每一頁都寫逐字稿，一句一行（句號後換行），第一人稱口語，數字用口語唸法，
+    題頁 150-350 字並且一定要講三個重點、覆蓋率、兩類提問與代表句
+    （超過字數時由 _trim_notes 依優先順序拿掉可省略的句子）。
 """
 import os
+import re
 import json
 
 from pptx import Presentation
@@ -237,13 +247,42 @@ def logo_corner(slide, logo):
 
 
 def page_head(slide, n, label, title, subtitle, logo=None):
+    # 標題寬度 11.0 吋（0.55–11.55）刻意讓開右上角 logo（11.88 起），避免幾何重疊
     textbox(slide, 0.55, 0.42, 8.0, 0.3, f"{n:02d} / {label}", size=12,
             color=TEAL, bold=True)
-    textbox(slide, 0.55, 0.74, 11.5, 0.62,
-            fit_one_line(title, 11.5, 30), size=30, bold=True, color=TEXT)
-    textbox(slide, 0.55, 1.40, 11.5, 0.34,
-            fit_one_line(subtitle, 11.5, 14), size=14, italic=True, color=MUTED)
+    textbox(slide, 0.55, 0.74, 11.0, 0.62,
+            fit_one_line(title, 11.0, 30), size=30, bold=True, color=TEXT)
+    textbox(slide, 0.55, 1.40, 11.0, 0.34,
+            fit_one_line(subtitle, 11.0, 14), size=14, italic=True, color=MUTED)
     logo_corner(slide, logo)
+
+
+def column(slide, x, y, w, h, lines, align=PP_ALIGN.LEFT):
+    """欄式文字框：lines = [(文字, 字級, 顏色, 粗體, 行距, 段後)]。
+
+    同一張表的每一欄都用相同的行結構，行高一致 → 各欄自然對齊，
+    而且一欄只佔一個 shape，幾何 QA 不會互相判定重疊。
+    """
+    tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+    tf = tb.text_frame
+    tf.word_wrap = False
+    tf.margin_left = tf.margin_right = Emu(0)
+    tf.margin_top = tf.margin_bottom = Emu(0)
+    for i, item in enumerate(lines):
+        txt, size, color, bold, ls, sa = item
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        p.alignment = align
+        p.line_spacing = ls
+        p.space_after = Pt(sa)
+        r = p.add_run()
+        # 空字串的段落 PowerPoint 會退回預設 18pt，行高就跟旁邊那一欄對不齊，
+        # 因此空白行一律塞一個不換行空格，讓字級真的生效。
+        r.text = txt if txt else " "
+        r.font.size = Pt(size)
+        r.font.bold = bold
+        r.font.color.rgb = color
+        r.font.name = FONT
+    return tb
 
 
 # ------------------------------------------------------------------ 頁型
@@ -300,8 +339,10 @@ def slide_overview(prs, ctx, qs):
 
     rect(s, 0.55, 1.88, 12.23, 4.32, fill=WHITE,
          shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.03)
-    cols = [(0.85, 0.95), (1.85, 4.55), (6.50, 1.55), (8.15, 1.45), (9.70, 2.85)]
-    for (cx, cw), h in zip(cols, ["題號", "題目", "作答/全班", "作答率", "作答率長條"]):
+    cols = [(0.85, 0.95), (1.85, 3.85), (5.85, 1.35), (7.30, 1.05),
+            (8.45, 1.45), (10.05, 2.45)]
+    for (cx, cw), h in zip(cols, ["題號", "題目", "作答/全班", "作答率",
+                                  "整體覆蓋率", "覆蓋率長條"]):
         textbox(s, cx, 2.10, cw, 0.3, h, size=13, bold=True, color=DEEP)
     rect(s, 0.85, 2.45, 11.65, 0.015, fill=LINE)
 
@@ -311,14 +352,22 @@ def slide_overview(prs, ctx, qs):
     y = 2.58
     for i, q in enumerate(qs):
         col = CYCLE[i % len(CYCLE)]
+        # 選擇題／測驗題沒有概念覆蓋率可言，欄位寫「—」而且不畫長條，
+        # 免得看起來像「全班都沒抓到重點」。
+        has_cov = bool(q.get("重點概念"))
+        cov = round(q.get("整體覆蓋率", 0) * 100)
         textbox(s, 0.85, y, 0.95, 0.3, q["題號"], size=size, bold=True, color=col)
-        textbox(s, 1.85, y, 4.55, 0.3, fit_one_line(q["題目"], 4.55, size),
+        textbox(s, 1.85, y, 3.85, 0.3, fit_one_line(q["題目"], 3.85, size),
                 size=size, color=TEXT)
-        textbox(s, 6.50, y, 1.55, 0.3, f"{q['作答人數']} / {q['全班人數']}",
+        textbox(s, 5.85, y, 1.35, 0.3, f"{q['作答人數']} / {q['全班人數']}",
                 size=size, color=TEXT)
-        textbox(s, 8.15, y, 1.45, 0.3, f"{q['作答率']}%", size=size, bold=True, color=col)
-        rect(s, 9.70, y + 0.07, 2.80, 0.17, fill=RGBColor(0xE6, 0xEE, 0xF2))
-        rect(s, 9.70, y + 0.07, max(2.80 * q["作答率"] / 100.0, 0.05), 0.17, fill=col)
+        textbox(s, 7.30, y, 1.05, 0.3, f"{q['作答率']}%", size=size, color=TEXT)
+        textbox(s, 8.45, y, 1.45, 0.3, f"{cov}%" if has_cov else "—（選擇題）",
+                size=size if has_cov else size - 2, bold=has_cov,
+                color=col if has_cov else MUTED)
+        rect(s, 10.05, y + 0.07, 2.45, 0.17, fill=RGBColor(0xE6, 0xEE, 0xF2))
+        if has_cov:
+            rect(s, 10.05, y + 0.07, max(2.45 * cov / 100.0, 0.05), 0.17, fill=col)
         y += rows_h
 
     band(s, fit_one_line(ctx["總結"], 11.8, 15), size=15)
@@ -326,63 +375,179 @@ def slide_overview(prs, ctx, qs):
     return s
 
 
+def _right_concept_cards(s, ctx, col):
+    """開放文字題的右欄：上＝三個重點＋覆蓋率，下＝提問分類。"""
+    rect(s, 7.08, 1.88, 5.70, 2.52, fill=WHITE,
+         shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.06)
+    textbox(s, 7.36, 2.06, 5.14, 0.30, ctx.get("重點標題", "三個重點（依提及人數）"),
+            size=14, bold=True, color=DEEP)
+    rect(s, 7.36, 2.42, 5.14, 0.015, fill=LINE)
+
+    focus = (ctx.get("重點") or [])[:3]
+    c_name = [("概念", 11, MUTED, True, 1.15, 5)] + \
+             [(fit_one_line("• " + f["概念"], 2.70, 15), 15, TEXT, True, 1.22, 6)
+              for f in focus]
+    c_ppl = [("提及", 11, MUTED, True, 1.15, 5)] + \
+            [(f"{f['提及人數']} 人", 15, TEXT, False, 1.22, 6) for f in focus]
+    c_cov = [("覆蓋率", 11, MUTED, True, 1.15, 5)] + \
+            [(f"{round(f['覆蓋率'] * 100)}%", 15, col, True, 1.22, 6) for f in focus]
+    column(s, 7.36, 2.48, 2.70, 1.30, c_name)
+    column(s, 10.10, 2.48, 1.20, 1.30, c_ppl, align=PP_ALIGN.RIGHT)
+    column(s, 11.34, 2.48, 1.16, 1.30, c_cov, align=PP_ALIGN.RIGHT)
+
+    rect(s, 7.36, 3.86, 5.14, 0.015, fill=LINE)
+    textbox(s, 7.36, 3.92, 5.14, 0.32,
+            fit_one_line(ctx.get("覆蓋率總結", ""), 5.14, 13), size=13, bold=True,
+            color=GREEN)
+
+    _ask_card(s, ctx)
+
+
+def _ask_card(s, ctx, y=4.54, h=1.66):
+    """提問分類卡（兩類各一行＋代表句）。"""
+    rect(s, 7.08, y, 5.70, h, fill=WHITE, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.08)
+    textbox(s, 7.36, y + 0.16, 5.14, 0.28,
+            fit_one_line(ctx.get("提問標題", "提問分類"), 5.14, 14),
+            size=14, bold=True, color=DEEP)
+    rect(s, 7.36, y + 0.48, 5.14, 0.015, fill=LINE)
+
+    asks = (ctx.get("提問") or [])[:2]
+    while len(asks) < 2:
+        asks.append({"類別": "—", "提問數": 0, "提問人數": 0, "代表句": ""})
+    for i, a in enumerate(asks):
+        head = f"{a['類別']}　提問 {a['提問數']} 則／{a['提問人數']} 人"
+        rep = ("代表句：" + a["代表句"]) if a["代表句"] else "代表句：本週這一類沒有提問"
+        column(s, 7.36, y + 0.54 + i * 0.54, 5.14, 0.52,
+               [(fit_one_line(head, 5.14, 13, reserve=0.5), 13,
+                 CYCLE[i % len(CYCLE)], True, 1.15, 2),
+                (fit_one_line(rep, 5.14, 11, reserve=1.0), 11, MUTED, False, 1.15, 0)])
+
+
+def _right_choice_cards(s, ctx, col):
+    """選擇題／測驗題的右欄：上＝各子題選項分佈，下＝答對率（或作答完成率）。
+
+    開放文字題那一套（三個重點／覆蓋率／提問）在這裡全是 0，
+    放上去只是空洞的版面，所以整個換掉。
+    """
+    # ---- 右上：各子題選項分佈（最多 4 個子題；子題多就每題少列一個選項）
+    rect(s, 7.08, 1.88, 5.70, 3.30, fill=WHITE,
+         shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.05)
+    subs = ctx.get("子題選項") or []
+    n_show = min(len(subs), 4)
+    per = 3 if n_show <= 2 else 2
+    textbox(s, 7.36, 2.06, 5.14, 0.30,
+            fit_one_line(ctx.get("選項標題", "各子題選項分佈"), 5.14, 14),
+            size=14, bold=True, color=DEEP)
+    rect(s, 7.36, 2.42, 5.14, 0.015, fill=LINE)
+
+    left, right = [], []
+    for i, sub in enumerate(subs[:n_show]):
+        left.append((fit_one_line(sub["子題"], 5.14, 11), 11, DEEP, True, 1.15, 2))
+        right.append(("", 11, MUTED, False, 1.15, 2))
+        for o in sub["選項"][:per]:
+            left.append((fit_one_line("　" + o["選項"], 3.40, 10), 10, TEXT, False, 1.15, 3))
+            right.append((f"{o['人數']} 人（{o['百分比']}%）", 10, col, True, 1.15, 3))
+    if len(subs) > n_show:
+        left.append((f"其餘 {len(subs) - n_show} 個子題見輸出資料夾的 CSV",
+                     10, MUTED, True, 1.15, 0))
+        right.append(("", 10, MUTED, False, 1.15, 0))
+    if not left:
+        left = [("本題沒有可統計的選項", 12, MUTED, False, 1.15, 0)]
+        right = [("", 12, MUTED, False, 1.15, 0)]
+    column(s, 7.36, 2.48, 3.40, 2.60, left)
+    column(s, 10.86, 2.48, 1.64, 2.60, right, align=PP_ALIGN.RIGHT)
+
+    # ---- 右下：答對率（測驗型）／作答完成率
+    rect(s, 7.08, 5.32, 5.70, 0.88, fill=WHITE,
+         shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.12)
+    textbox(s, 7.36, 5.44, 5.14, 0.26,
+            fit_one_line(ctx.get("答對標題", "作答完成率"), 5.14, 12),
+            size=12, bold=True, color=DEEP)
+    textbox(s, 7.36, 5.76, 5.14, 0.30,
+            fit_one_line(ctx.get("答對內容", "—"), 5.14, 13, reserve=0.5),
+            size=13, bold=True, color=GREEN)
+
+
 def slide_question(prs, ctx, wc_png, idx):
+    """一題一頁：左＝文字雲（或選項統計）＋圖說；右欄兩張卡；底部 navy 橫幅。"""
     s = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(s, BG)
     page_head(s, ctx["頁碼標"], ctx["眉標"], ctx["標題"], ctx["副標"], ctx.get("logo"))
+    col = CYCLE[idx % len(CYCLE)]
 
-    # 左欄：文字雲＋圖說
+    # ---------------- 左欄：文字雲（或統計）＋圖說
     rect(s, 0.55, 1.88, 6.30, 4.32, fill=WHITE,
          shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.04)
     iw = 5.84
     if wc_png and os.path.exists(wc_png):
         fit_image(s, wc_png, 0.78, 2.10, iw, 2.90)
-        textbox(s, 0.78, 5.18, iw, 0.90, ctx["圖說"], size=14, color=MUTED,
-                line_spacing=1.28)
+        textbox(s, 0.78, 5.18, iw, 0.90, ctx["圖說"], size=12, color=MUTED,
+                line_spacing=1.30)
     else:
-        textbox(s, 0.78, 2.60, iw, 1.4, ctx.get("大數字", ""), size=72, bold=True,
+        textbox(s, 0.78, 2.20, iw, 1.10, ctx.get("大數字", ""), size=60, bold=True,
                 color=TEAL, align=PP_ALIGN.CENTER)
-        textbox(s, 0.78, 4.20, iw, 0.5, ctx.get("大數字說明", ""), size=18,
+        textbox(s, 0.78, 3.40, iw, 0.36, ctx.get("大數字說明", ""), size=16,
                 color=TEXT, align=PP_ALIGN.CENTER)
-        textbox(s, 0.78, 5.00, iw, 1.0, ctx.get("圖說", ""), size=14, color=MUTED,
-                align=PP_ALIGN.CENTER, line_spacing=1.3)
+        opts = ctx.get("選項分佈", [])[:4]
+        if opts:
+            column(s, 0.78, 3.88, 3.70, 1.10,
+                   [(fit_one_line(o["選項"], 3.70, 13), 13, TEXT, False, 1.25, 4)
+                    for o in opts])
+            column(s, 4.60, 3.88, 2.02, 1.10,
+                   [(f"{o['人數']} 人（{o['百分比']}%）", 13, col, True, 1.25, 4)
+                    for o in opts], align=PP_ALIGN.RIGHT)
+        textbox(s, 0.78, 5.18, iw, 0.90, ctx.get("圖說", ""), size=12, color=MUTED,
+                align=PP_ALIGN.LEFT, line_spacing=1.30)
 
-    # 右欄：TOP5 關鍵詞卡
-    rect(s, 7.08, 1.88, 5.70, 4.32, fill=WHITE,
-         shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.04)
-    textbox(s, 7.36, 2.14, 5.14, 0.32, ctx.get("重點標題", "前五大關鍵詞"),
-            size=14, bold=True, color=DEEP)
-    rect(s, 7.36, 2.52, 5.14, 0.015, fill=LINE)
+    focus = (ctx.get("重點") or [])[:3]
+    if focus:
+        _right_concept_cards(s, ctx, col)
+    else:
+        _right_choice_cards(s, ctx, col)
 
-    # 每條 18pt 單行（行高 ≈ 18 × 1.22 × 1.3 / 72 ≈ 0.40 吋），5 條 ＋ 間距塞進 3.25 吋
-    tb = s.shapes.add_textbox(Inches(7.36), Inches(2.80), Inches(5.14), Inches(3.25))
-    tf = tb.text_frame
-    tf.word_wrap = True
-    tf.margin_left = tf.margin_right = Emu(0)
-    tf.margin_top = tf.margin_bottom = Emu(0)
-    items = ctx["重點"][:5]
-    for i, it in enumerate(items):
-        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-        p.line_spacing = 1.18
-        p.space_after = Pt(13)
-        key = it["關鍵詞"]
-        body = it["說明"]
-        head = f"• {key}　"
-        # 關鍵詞最多 8 個字寬，其餘留給說明；整條必須單行
-        head = fit_one_line(head, 5.14 * 0.45, 18)
-        r1 = p.add_run()
-        r1.text = head
-        r1.font.size = Pt(18)
-        r1.font.bold = True
-        r1.font.color.rgb = CYCLE[idx % len(CYCLE)]
-        r1.font.name = FONT
-        rest_w = 5.14 - disp_width(head) * (18 / 72.0)
-        r2 = p.add_run()
-        r2.text = fit_one_line(body, rest_w, 18, reserve=0.4)
-        r2.font.size = Pt(18)
-        r2.font.color.rgb = TEXT
-        r2.font.name = FONT
+    band(s, fit_one_line(ctx["總結"], 11.8, 15), size=15)
+    notes(s, ctx["逐字稿"])
+    return s
 
+
+def slide_appendix(prs, ctx, tables):
+    """附錄：概念矩陣小表（每題 3 概念 × 前 10 位學生編號）。"""
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    set_bg(s, BG)
+    page_head(s, ctx["頁碼標"], ctx["眉標"], ctx["標題"], ctx["副標"], ctx.get("logo"))
+    rect(s, 0.55, 1.88, 12.23, 4.32, fill=WHITE,
+         shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.03)
+
+    for ti, t in enumerate(tables[:3]):
+        x0 = 0.85 + ti * 3.90
+        colr = CYCLE[ti % len(CYCLE)]
+        textbox(s, x0, 1.98, 3.75, 0.28, fit_one_line(t["標題"], 3.75, 13),
+                size=13, bold=True, color=colr)
+        marks = "①②③"
+        legend = [(fit_one_line(f"{marks[i]} {c}", 3.75, 10), 10, MUTED, False, 1.20, 2)
+                  for i, c in enumerate(t["概念"][:3])]
+        while len(legend) < 3:
+            legend.append(("", 10, MUTED, False, 1.20, 2))
+        column(s, x0, 2.24, 3.75, 0.70, legend)
+
+        codes = t["學生編號"][:10]
+        head_row = ("學生編號", 10, DEEP, True, 1.10, 3)
+        c0 = [head_row] + [(c, 10, TEXT, False, 1.10, 3) for c in codes]
+        cols = []
+        for j in range(3):
+            lines = [(marks[j] if j < len(t["概念"]) else "—", 10, DEEP, True, 1.10, 3)]
+            for c in codes:
+                v = t["矩陣"].get(c, [])
+                lines.append((("1" if (j < len(v) and v[j]) else "0"), 10,
+                              (colr if (j < len(v) and v[j]) else MUTED), False, 1.10, 3))
+            cols.append(lines)
+        column(s, x0, 3.02, 1.60, 2.50, c0)
+        for j in range(3):
+            column(s, x0 + 1.65 + j * 0.71, 3.02, 0.66, 2.50, cols[j],
+                   align=PP_ALIGN.CENTER)
+
+    textbox(s, 0.85, 5.62, 11.60, 0.50, ctx.get("附註", ""), size=12, color=MUTED,
+            line_spacing=1.15)
     band(s, fit_one_line(ctx["總結"], 11.8, 15), size=15)
     notes(s, ctx["逐字稿"])
     return s
@@ -488,45 +653,103 @@ def export_thumbs(pptx_path, out_dir, pages=None, width=1600, log=print):
 
 
 # ------------------------------------------------------------------ 內容組裝
-def _keyword_items(q):
-    """把 TOP 詞轉成右卡 5 條「關鍵詞 — 出現 N 次，M 位同學提到」。"""
-    items = []
-    for row in q.get("TOP詞明細", [])[:5]:
-        w, c, ppl = row["詞"], row["次數"], row["提及人數"]
-        items.append({"關鍵詞": w, "說明": f"出現 {c} 次，{ppl} 位同學提到"})
-    if not items:
-        for w, c in q.get("TOP詞", [])[:5]:
-            items.append({"關鍵詞": w, "說明": f"出現 {c} 次"})
-    return items
+NOTE_MAX = 350          # 逐字稿上限（字），約 80–90 秒
+NOTE_MIN = 150
+
+
+def _trim_notes(lines, optional_idx, limit=NOTE_MAX):
+    """逐字稿超過字數上限時，依優先順序把「可省略的句子」拿掉。
+
+    lines        = [句子]
+    optional_idx = [可省略句子的索引]，**排在前面的先被拿掉**
+    """
+    drop = set()
+    for i in optional_idx:
+        keep = [s for k, s in enumerate(lines) if k not in drop]
+        if len("\n".join(keep)) <= limit:
+            break
+        drop.add(i)
+    keep = [s for k, s in enumerate(lines) if k not in drop]
+
+    # 可省的都拿掉了還是超過 → 從後面整句砍掉，保證 ≤ limit（含標點）
+    while len(keep) > 1 and len("\n".join(keep)) > limit:
+        keep.pop()
+    if keep and len("\n".join(keep)) > limit:
+        keep = [keep[0][:limit]]
+    return keep
 
 
 def _q_notes(q, idx, total_q, week_label):
-    """每題頁逐字稿：一句一行、第一人稱口語、數字用口語唸法。"""
-    top = q.get("TOP詞明細") or [{"詞": w, "次數": c, "提及人數": 0}
-                                 for w, c in q.get("TOP詞", [])]
-    L = [f"這一頁是第{cn_num(idx)}題，題目是「{q['題目']}」。",
-         f"這一題全班有{cn_num(q['作答人數'])}位同學作答，班級人數是{cn_num(q['全班人數'])}位，"
-         f"作答率{cn_pct(q['作答率'])}。",
-         f"可以做文字分析的開放作答共{cn_num(q.get('文字列數', q['有效列數']))}列，"
-         f"平均每則大約{cn_num(round(q['平均字數']))}個字。",
-         "左邊這張圖是同學作答的文字雲，字愈大代表出現次數愈多。"]
-    if top:
-        w0 = top[0]
-        L.append(f"出現最多的關鍵詞是「{w0['詞']}」，一共出現{cn_num(w0['次數'])}次。")
-        if w0.get("提及人數"):
-            L.append(f"有{cn_num(w0['提及人數'])}位同學在答案裡提到它。")
-    if len(top) >= 3:
-        L.append("接下來依序是「" + "」、「".join(t["詞"] for t in top[1:4]) + "」。")
-    L.append("右邊這張卡片，我把前五個關鍵詞的出現次數和提到的人數列出來。")
-    for s in q.get("子題", []):
-        if s.get("選項分佈"):
-            o = s["選項分佈"][0]
-            L.append(f"這一題還有一個選擇題子題，最多同學選的是「{o['選項']}」，"
-                     f"佔{cn_pct(o['百分比'])}。")
-    if q.get("常見問題"):
-        L.append("這一題也有同學提出疑問，我把它整理在摘要檔裡，等一下可以在課堂上回應。")
-    L.append("以上是這一題的作答情形，接下來看下一題。")
-    return L
+    """每題頁逐字稿：一句一行、第一人稱口語、數字用口語唸法（150–350 字）。
+
+    必講：題目、作答率、三個重點與各自覆蓋率、整體覆蓋率、兩類提問與代表句。
+    可省：開放作答則數、文字雲說明、建議句、其他提問 —— 字數超過時依序拿掉。
+    """
+    focus = q.get("重點概念") or []
+    asks = q.get("提問統計") or []
+    L, opt = [], []
+
+    def add(text, optional=0):
+        """optional=0 必講；>0 代表可省略，數字小的先被拿掉。"""
+        if optional:
+            opt.append((optional, len(L)))
+        L.append(text)
+
+    add(f"這一頁是第{cn_num(idx)}題，題目是「{q['題目']}」。")
+    add(f"這一題有{cn_num(q['作答人數'])}位同學作答，全班{cn_num(q['全班人數'])}位，"
+        f"作答率{cn_pct(q['作答率'])}。")
+    if focus:
+        add("左邊是同學作答的文字雲，字愈大代表出現次數愈多。", optional=5)
+        add(f"可以做文字分析的開放作答共{cn_num(q.get('文字列數', q['有效列數']))}則，"
+            f"平均每則大約{cn_num(round(q['平均字數']))}個字。", optional=1)
+        add("右上角是這一題的三個重點。")
+        for i, f in enumerate(focus, 1):
+            add(f"第{cn_num(i)}個重點是「{f['概念']}」，"
+                f"有{cn_num(f['提及人數'])}位同學提到，覆蓋率{cn_pct(f['覆蓋率'] * 100)}。")
+        add(f"至少提到一個重點的同學佔{cn_pct(q.get('整體覆蓋率', 0) * 100)}，"
+            f"三個都提到的佔{cn_pct(q.get('三個都提到比例', 0) * 100)}。")
+        if q.get("整體覆蓋率", 0) < 0.6:
+            add("覆蓋率還不到六成，建議下一堂課再把這三個重點講一次。", optional=3)
+        else:
+            add("覆蓋率還不錯，代表大部分同學都抓到重點了。", optional=3)
+    else:
+        # 選擇題／測驗題：講選項分佈與答對率，不講三個重點與提問（那些都是 0）
+        add("這一題是選擇題或測驗題，回答都是固定選項，所以不做文字雲。")
+        add("左邊的大數字是本題的作答人數。", optional=5)
+        add("右上角這張卡片是各個子題的選項分佈。")
+        for sub in (q.get("子題") or [])[:3]:
+            dist = sub.get("選項分佈") or []
+            if not dist:
+                continue
+            lab = re.sub(r":.*$", "", sub.get("子題號", "")) or "本題"
+            o = dist[0]
+            add(f"{lab}最多同學選的是「{o['選項']}」，"
+                f"有{cn_num(o['人數'])}位，佔{cn_pct(o['百分比'])}。")
+        rates = [(re.sub(r":.*$", "", s.get("子題號", "")), s["答對率"])
+                 for s in (q.get("子題") or []) if s.get("答對率") is not None]
+        if rates:
+            add("右下角是每個子題的答對率。")
+            add("、".join(f"{lab}{cn_pct(r)}" for lab, r in rates[:4]) + "。")
+        else:
+            add(f"這一題的作答完成率是{cn_pct(q.get('作答率', 0))}。", optional=4)
+        add("以上是這一題的作答情形，接下來看下一題。")
+        return _trim_notes(L, [i for _pri, i in sorted(opt)])
+
+    add("右下角是同學提問的分類。", optional=4)
+    for a in asks[:2]:
+        if a["提問數"]:
+            rep = a.get("代表句") or ""
+            rep = (rep[:20] + "…") if len(rep) > 20 else rep
+            s = f"{a['類別']}有{cn_num(a['提問數'])}則，來自{cn_num(a['提問人數'])}位同學"
+            add(s + (f"，代表問題是「{rep}」。" if rep else "。"))
+        else:
+            add(f"{a['類別']}這一週沒有同學提問。")
+    if q.get("其他提問數"):
+        add(f"另外還有{cn_num(q['其他提問數'])}則沒辦法歸類，放在提問清單裡。", optional=2)
+    add("以上是這一題的作答情形，接下來看下一題。")
+
+    # 可省略句子的拿掉順序：先拿資訊量最低的
+    return _trim_notes(L, [i for _pri, i in sorted(opt)])
 
 
 def build_deck(analysis, out_path, meta, wc_map, log=print):
@@ -536,7 +759,6 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
     prs.slide_height = Inches(SH)
 
     qs = analysis["題目"]
-    total = 3 + len(qs)          # 封面 + 總覽 + 每題一頁 + 結尾
     series = meta["series"]
     logo = meta.get("logo")
     week_label = meta.get("week_label", "")
@@ -545,15 +767,26 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
     n_q = len(qs)
     n_ans = sum(q["作答人數"] for q in qs)
     avg_rate = round(sum(q["作答率"] for q in qs) / max(n_q, 1), 1)
+    # 平均覆蓋率只算「有開放文字作答」的題；選擇題／測驗題沒有覆蓋率，
+    # 算進去只會把平均拉低成一個沒意義的數字。
+    cov_qs = [q for q in qs if q.get("重點概念")]
+    avg_cov = round(sum(q.get("整體覆蓋率", 0) for q in cov_qs) * 100
+                    / max(len(cov_qs), 1), 1)
+    n_ask = sum(q.get("提問總數", 0) for q in qs)
     top10 = analysis.get("全班重點TOP10", [])
     top_words = [w for w, _ in top10[:5]]
+
+    # 附錄頁：有概念矩陣才做（config.json 的 appendix_matrix 預設 true）
+    appendix_qs = [q for q in qs if q.get("重點概念")]
+    want_appendix = bool(meta.get("appendix_matrix", True)) and bool(appendix_qs)
+    total = 3 + n_q + (1 if want_appendix else 0)
 
     # ---- 1. 封面
     slide_cover(prs, {
         "眉標": meta.get("eyebrow", "WEEKLY HOMEWORK ANALYTICS"),
         "主標": f"{course}\n同學作答分析　{week_label}",
-        "英文副標": "Student Response Word Cloud & Key-Concept Report",
-        "關鍵字": (top_words or ["文字雲", "作答分析"])[:4] + ["姓名已遮罩"],
+        "英文副標": "Concept Coverage, Word Cloud & Question Taxonomy",
+        "關鍵字": (top_words or ["文字雲", "作答分析"])[:3] + ["概念矩陣", "學生編號"],
         "報告人資訊": (f"授課教師：{meta.get('teacher', '')}\n"
                    f"教學助理：{meta.get('ta_name', '')}\n"
                    f"製作日期：{meta.get('date', '')}"),
@@ -561,23 +794,31 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
         "逐字稿": [
             "老師好，我是這門課的教學助理。",
             f"這是{course}{week_label}的同學作答分析。",
-            f"這一次一共整理了{cn_num(n_q)}題，全部同學的作答都已經做過姓名遮罩。",
-            "接下來我會先報告整體作答情形，再一題一題看關鍵詞。",
+            f"這一次一共整理了{cn_num(n_q)}題。",
+            "報告裡的同學一律用學生編號表示，姓名已經遮罩，學號也全部改成大寫的 O。",
+            "每一題我會報告三個重點的覆蓋率，還有同學提問的兩種分類。",
+            "接下來先看整體作答情形。",
         ],
     })
 
     # ---- 2. 總覽
     slide_overview(prs, {
         "頁碼標": 1, "眉標": "OVERVIEW",
-        "標題": "整體作答情形", "副標": f"{week_label}　各題作答人數與作答率",
+        "標題": "檢視本週整體作答與概念覆蓋",
+        "副標": f"{week_label}　各題作答率與「至少提到一個重點」的整體覆蓋率",
         "總結": (f"本週{cn_num(n_q)}題平均作答率 {avg_rate}%；"
-               f"全班最常出現的詞是「{top_words[0] if top_words else '—'}」"),
+               f"其中 {len(cov_qs)} 題開放作答的平均整體覆蓋率 {avg_cov}%；"
+               f"同學共提出 {n_ask} 則問題"),
         "logo": logo,
         "逐字稿": [
             "這一頁是本週的整體作答情形。",
-            f"表格由左到右分別是題號、題目、作答人數比全班人數、作答率，以及右邊的作答率長條。",
+            "表格由左到右分別是題號、題目、作答人數比全班人數、作答率、整體覆蓋率，"
+            "最右邊是覆蓋率長條。",
             f"本週一共{cn_num(n_q)}題，平均作答率是{cn_pct(avg_rate)}。",
             f"累計的作答人次是{cn_num(n_ans)}人次。",
+            f"整體覆蓋率的意思是，至少提到三個重點其中一個的同學佔多少比例，"
+            f"本週{cn_num(len(cov_qs))}題開放作答的平均是{cn_pct(avg_cov)}。",
+            f"同學這一週一共提出{cn_num(n_ask)}則問題。",
         ] + ([f"全班最常出現的關鍵詞是「{top_words[0]}」。"] if top_words else []) + [
             "下面的深藍色橫幅是這一頁的一句話重點。",
             "接下來我逐題說明。",
@@ -588,38 +829,109 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
     # ---- 3. 每題一頁
     for i, q in enumerate(qs, 1):
         png = wc_map.get(q["題號"])
+        focus = q.get("重點概念") or []
+        asks = q.get("提問統計") or []
         cap = (f"圖 {i}　{q['題號']} 作答文字雲（{week_label}，{course}）\n"
-               f"資料來源：Zuvio 下載數據；字級與出現次數成正比；姓名已遮罩")
+               f"資料來源：Zuvio 下載數據（已去識別化）；字級與出現次數成正比。\n"
+               f"同學以學生編號表示，姓名已遮罩、學號已全部改成 O。")
+        if not png or not os.path.exists(png):
+            cap = (f"圖 {i}　{q['題號']} 選項分佈（{week_label}，{course}）\n"
+                   f"資料來源：Zuvio 下載數據（已去識別化）；本題為選擇題／測驗題，不做文字雲。")
+        # 選擇題／測驗題：每個子題只列「最多人選的那個選項」，並標上子題號，
+        # 免得多個子題的選項混在一起看不出誰是誰。
+        opts, sub_opts, rates = [], [], []
+        for s in q.get("子題", []):
+            dist = s.get("選項分佈") or []
+            lab = re.sub(r":.*$", "", s.get("子題號", "")) or "本題"
+            if dist:
+                opts.append({"選項": f"{lab}　{dist[0]['選項']}",
+                             "人數": dist[0]["人數"], "百分比": dist[0]["百分比"]})
+                sub_opts.append({"子題": lab, "選項": dist})
+            if s.get("答對率") is not None:
+                rates.append((lab, s["答對率"]))
+        if rates:
+            ans_title = "答對率（各子題）"
+            ans_body = "　".join(f"{lab} {r}%" for lab, r in rates[:5])
+        else:
+            ans_title = "作答完成率"
+            ans_body = (f"{q['作答人數']} / {q['全班人數']} 人作答，"
+                        f"完成率 {q['作答率']}%")
+        if focus:
+            summary = (f"{q['題號']} 三個重點：" +
+                       "、".join(f"{f['概念']}（{round(f['覆蓋率'] * 100)}%）" for f in focus))
+        else:
+            summary = (f"{q['題號']} 為選擇題／測驗題，改看選項分佈與"
+                       + ("答對率" if rates else "作答完成率"))
         slide_question(prs, {
             "頁碼標": i + 1, "眉標": f"QUESTION {i:02d}",
-            "標題": f"{q['題號']}　{q['題目']}",
+            "標題": f"解讀 {q['題號']}：{q['題目']}",
             "副標": (f"作答 {q['作答人數']} / {q['全班人數']} 人　作答率 {q['作答率']}%　"
-                   f"開放文字 {q.get('文字列數', q['有效列數'])} 列　"
+                   f"開放文字 {q.get('文字列數', q['有效列數'])} 則　"
                    f"平均 {q['平均字數']} 字"),
             "圖說": cap,
-            "重點標題": "前五大關鍵詞（依出現次數）",
-            "重點": _keyword_items(q),
+            "重點標題": "三個重點（依提及人數排序）",
+            "重點": focus,
+            "覆蓋率總結": (f"整體覆蓋率 {round(q.get('整體覆蓋率', 0) * 100)}%"
+                     f"（至少提到 1 個重點）　三個都提到 "
+                     f"{round(q.get('三個都提到比例', 0) * 100)}%"),
+            "提問標題": (f"提問分類　共 {q.get('提問總數', 0)} 則／"
+                    f"{q.get('提問人數', 0)} 人（其他 {q.get('其他提問數', 0)} 則）"),
+            "提問": asks,
+            "選項分佈": opts,
+            "選項標題": f"各子題選項分佈（共 {len(sub_opts)} 個子題）",
+            "子題選項": sub_opts,
+            "答對標題": ans_title,
+            "答對內容": ans_body,
             "大數字": f"{q['作答人數']}",
             "大數字說明": "位同學作答",
-            "總結": (f"{q['題號']} 關鍵詞：" +
-                   "、".join(w for w, _ in q["TOP詞"][:5])) if q["TOP詞"] else
-                   f"{q['題號']} 本題有效作答不足，建議下週提醒同學補交",
+            "總結": summary,
             "logo": logo,
             "逐字稿": _q_notes(q, i, n_q, week_label),
         }, png, i)
         footer(prs.slides[-1], series, i + 2, total)
 
-    # ---- 4. 結尾
+    # ---- 4. 附錄：概念矩陣小表
+    if want_appendix:
+        tables = [{"標題": f"{q['題號']}（前十位）",
+                   "概念": [f["概念"] for f in q["重點概念"]],
+                   "學生編號": list(q.get("概念矩陣", {}).keys())[:10],
+                   "矩陣": q.get("概念矩陣", {})} for q in appendix_qs[:3]]
+        n_show = sum(len(t["學生編號"]) for t in tables)
+        slide_appendix(prs, {
+            "頁碼標": n_q + 2, "眉標": "APPENDIX　CONCEPT MATRIX",
+            "標題": "對照概念矩陣（前十位學生編號）",
+            "副標": "1 代表該生的回答有提到這個重點，0 代表沒有提到",
+            "附註": ("完整矩陣請看輸出資料夾的 Q0N_concept_matrix.csv（每一列一位同學）；"
+                   "提問明細請看 Q0N_questions.csv。\n"
+                   "表內一律使用學生編號，對照姓名的檔案只留在本機，不得外流。"),
+            "總結": f"附錄列出 {len(tables)} 題的概念矩陣節錄，完整資料在輸出資料夾的 CSV",
+            "logo": logo,
+            "逐字稿": [
+                "這一頁是附錄，我把概念矩陣節錄出來給老師看。",
+                "每一張小表的左邊是學生編號，右邊三欄分別對應這一題的三個重點。",
+                "圈一、圈二、圈三的意思寫在表格上面。",
+                "一代表這位同學的回答有提到這個重點，零代表沒有提到。",
+                f"因為版面有限，這裡只放前十位，一共{cn_num(n_show)}列。",
+                "完整的矩陣在輸出資料夾裡，檔名是 Q 零 N 底線 concept matrix 點 csv。",
+                "同學提問的明細也另外存成 csv，可以直接用 Excel 打開。",
+                "表格裡只會出現學生編號，不會出現姓名和學號。",
+            ],
+        }, tables)
+        footer(prs.slides[-1], series, n_q + 3, total)
+
+    # ---- 5. 結尾
     slide_closing(prs, {
         "眉標": "NEXT STEPS",
         "主標": "以上是本週的作答分析\n謝謝老師",
-        "說明": ("下一步：把關鍵詞帶回課堂回應同學的疑問。\n"
-               "所有輸出檔的姓名皆已遮罩（第 2 字改 O），原始 xlsx 僅留在本機。"),
+        "說明": ("下一步：把覆蓋率偏低的重點帶回課堂補強，並回應同學的兩類提問。\n"
+               "所有輸出檔一律使用學生編號，姓名已遮罩、學號已全部改成 O。"),
         "逐字稿": [
             "這是最後一頁。",
-            f"本週一共分析了{cn_num(n_q)}題，平均作答率{cn_pct(avg_rate)}。",
-            "我會把同學提出的疑問整理成清單，在下一堂課回應。",
-            "所有輸出的檔案姓名都已經遮罩，原始檔只留在我的電腦裡。",
+            f"本週一共分析了{cn_num(n_q)}題，平均作答率{cn_pct(avg_rate)}，"
+            f"開放作答題的平均整體覆蓋率{cn_pct(avg_cov)}。",
+            f"同學一共提出{cn_num(n_ask)}則問題，我已經分成概念理解和操作應用兩類。",
+            "我會先回應提問人數比較多的那一類，再補強覆蓋率偏低的重點。",
+            "所有輸出的檔案都只有學生編號，原始檔和對照表只留在我的電腦裡。",
             "以上是本週報告，謝謝老師。",
         ],
     })

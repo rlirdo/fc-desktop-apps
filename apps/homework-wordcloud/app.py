@@ -2,12 +2,16 @@
 """
 app.py — 學生作業文字雲（HomeworkWordCloud）桌面版入口
 
-給課程教學助理（TA）用：把 Zuvio 匯出的 xlsx（或通用 CSV）變成
-「同學作答分析」簡報＋文字雲，姓名一律遮罩。
+給課程教學助理（TA）用：把「姓名遮罩與學生編號」處理過的 xlsx
+（或原始 Zuvio 匯出、通用 CSV）變成「同學作答分析」簡報＋文字雲＋概念矩陣＋提問分類。
+輸出一律使用學生編號（例 115-1_EC_3），姓名已遮罩、學號與 email 全部改成 O。
 
 雙擊 exe → 出現視窗；也可以用命令列：
-    HomeworkWordCloud.exe --selftest    無視窗自我測試（成功印 SELFTEST OK、回傳碼 0）
-    HomeworkWordCloud.exe --version     印版本
+    HomeworkWordCloud.exe --selftest                          無視窗自我測試
+                                                              （成功印 SELFTEST OK、回傳碼 0）
+    HomeworkWordCloud.exe --check-privacy <輸出資料夾>         隱私檢查
+                                                              [--input <原始輸入資料夾>]
+    HomeworkWordCloud.exe --version                           印版本
 """
 import os
 import sys
@@ -78,6 +82,41 @@ def run_selftest():
     return code
 
 
+def _opt(argv, name):
+    """取命令列選項的值：`--name 值` 或 `--name=值`。"""
+    for i, a in enumerate(argv):
+        if a == name and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith(name + "="):
+            return a.split("=", 1)[1]
+    return ""
+
+
+def run_check_privacy(argv):
+    """--check-privacy <輸出資料夾> [--input <原始輸入資料夾>]
+
+    掃描輸出資料夾，比對名冊姓名、9 碼學號與電子郵件樣式；0 命中才回傳 0。
+    """
+    target = _opt(argv, "--check-privacy")
+    if not target:
+        rest = [a for a in argv if not a.startswith("-")]
+        target = rest[0] if rest else ""
+    src = _opt(argv, "--input") or None
+    log = lambda *a: print(" ".join(str(x) for x in a), flush=True)   # noqa: E731
+    if not target:
+        log("用法：HomeworkWordCloud.exe --check-privacy <輸出資料夾> [--input <輸入資料夾>]")
+        return 2
+    try:
+        hits = P.check_privacy(target, input_dir=src, log=log)
+    except P.PipelineError as e:
+        log(str(e))
+        return 2
+    except Exception:
+        log(traceback.format_exc())
+        return 2
+    return 1 if hits else 0
+
+
 # ------------------------------------------------------------------ GUI
 def run_gui():
     import tkinter as tk
@@ -117,6 +156,8 @@ def run_gui():
     v_teacher = tk.StringVar(value=cfg.get("teacher", ""))
     v_ta = tk.StringVar(value=cfg.get("ta_name", ""))
     v_start = tk.StringVar(value=cfg.get("semester_start", ""))
+    v_code = tk.StringVar(value=cfg.get("course_code", "EC"))
+    v_sem = tk.StringVar(value=cfg.get("semester", "115-1"))
 
     ttk.Label(info, text="課程名稱").grid(row=0, column=0, sticky="e", **pad)
     ttk.Entry(info, textvariable=v_course).grid(row=0, column=1, sticky="ew", **pad)
@@ -126,8 +167,35 @@ def run_gui():
     ttk.Entry(info, textvariable=v_ta).grid(row=1, column=1, sticky="ew", **pad)
     ttk.Label(info, text="學期起日（第 1 週的星期日）").grid(row=1, column=2, sticky="e", **pad)
     ttk.Entry(info, textvariable=v_start).grid(row=1, column=3, sticky="ew", **pad)
-    ttk.Label(info, text="格式 2026-09-06；「跑本週」要靠它自動算第幾週。",
-              foreground="#64748B").grid(row=2, column=1, columnspan=3, sticky="w", padx=6)
+
+    idrow = ttk.Frame(info)
+    idrow.grid(row=2, column=0, columnspan=4, sticky="w", padx=6, pady=(2, 0))
+    ttk.Label(idrow, text="課程縮寫（2 個英文字母）").pack(side="left")
+    ttk.Entry(idrow, textvariable=v_code, width=6).pack(side="left", padx=(6, 14))
+    ttk.Label(idrow, text="學期（例 115-1）").pack(side="left")
+    ttk.Entry(idrow, textvariable=v_sem, width=8).pack(side="left", padx=(6, 14))
+    v_codehint = tk.StringVar(value="")
+    ttk.Label(idrow, textvariable=v_codehint, foreground="#065A82").pack(side="left")
+
+    def refresh_hint(*_a):
+        code = P.norm_course_code(v_code.get())
+        sem = P.norm_semester(v_sem.get())
+        bad = []
+        if code != v_code.get().strip().upper():
+            bad.append("課程縮寫")
+        if sem != v_sem.get().strip():
+            bad.append("學期")
+        tip = f"學生編號會長成 {sem}_{code}_1、{sem}_{code}_2…"
+        if bad:
+            tip += "（" + "／".join(bad) + "格式不對，先用預設值）"
+        v_codehint.set(tip)
+
+    v_code.trace_add("write", refresh_hint)
+    v_sem.trace_add("write", refresh_hint)
+    refresh_hint()
+
+    ttk.Label(info, text="學期起日格式 2026-09-06；「跑本週」要靠它自動算第幾週。",
+              foreground="#64748B").grid(row=3, column=0, columnspan=4, sticky="w", padx=6)
 
     # ---------------- 資料夾
     fold = ttk.LabelFrame(body, text="資料夾", padding=8)
@@ -142,7 +210,7 @@ def run_gui():
         if d:
             var.set(os.path.normpath(d))
 
-    ttk.Label(fold, text="輸入資料夾（放 Zuvio xlsx／CSV）").grid(row=0, column=0, sticky="e", **pad)
+    ttk.Label(fold, text="輸入資料夾（放遮罩後的 xlsx／CSV）").grid(row=0, column=0, sticky="e", **pad)
     ttk.Entry(fold, textvariable=v_in).grid(row=0, column=1, sticky="ew", **pad)
     ttk.Button(fold, text="瀏覽…", command=lambda: browse(v_in, "選擇輸入資料夾")
                ).grid(row=0, column=2, **pad)
@@ -207,6 +275,8 @@ def run_gui():
             "teacher": v_teacher.get().strip(),
             "ta_name": v_ta.get().strip(),
             "semester_start": v_start.get().strip(),
+            "course_code": P.norm_course_code(v_code.get()),
+            "semester": P.norm_semester(v_sem.get()),
             "input_dir": v_in.get().strip(),
             "output_dir": v_out.get().strip(),
         })
@@ -324,8 +394,12 @@ def run_gui():
                     variable=v_thumb).pack(side="left")
 
     append(f"{P.APP_TITLE}　版本 {P.VERSION}")
-    append("步驟：1) 填課程資訊　2) 選輸入／輸出資料夾　3) 按「跑本週」　4) 按「隱私檢查」確認 0 命中。")
-    append("隱私鐵律：輸出的姓名一律遮罩（第 2 字改 O）；原始 xlsx 請留在自己電腦，不要上傳。")
+    append("兩步流程：① 先用「姓名遮罩與學生編號」處理 Zuvio 匯出的 xlsx，"
+           "② 把它的輸出放進「輸入資料夾」再按「跑本週」。")
+    append("步驟：1) 填課程資訊與課程縮寫／學期　2) 選輸入／輸出資料夾　3) 按「跑本週」"
+           "　4) 按「隱私檢查」確認 0 命中。")
+    append("隱私鐵律：輸出一律用學生編號；姓名第 2 字改 O、學號與 email 全部改 O；"
+           "「學生編號連結姓名」對照表只能留在自己電腦，不要上傳。")
     append("")
 
     def on_close():
@@ -349,6 +423,8 @@ def main(argv=None):
         return 0
     if "--selftest" in argv:
         return run_selftest()
+    if "--check-privacy" in argv:
+        return run_check_privacy(argv)
     if "--help" in argv or "-h" in argv:
         try:
             print(__doc__, flush=True)

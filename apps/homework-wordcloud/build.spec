@@ -122,7 +122,7 @@ if sys.platform == 'darwin':
         info_plist={
             'CFBundleName': 'HomeworkWordCloud',
             'CFBundleDisplayName': '學生作業文字雲',
-            'CFBundleShortVersionString': '1.0.0',
+            'CFBundleShortVersionString': '2.0.0',
             'NSHighResolutionCapable': True,
         },
     )

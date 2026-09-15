@@ -136,17 +136,20 @@ def generate_all(work_dir, out_dir=None, min_words=5, log=print):
     out_dir = out_dir or os.path.join(work_dir, "wc")
     os.makedirs(out_dir, exist_ok=True)
     made = {}
-    for csv_path in sorted(glob.glob(os.path.join(work_dir, "Q*.csv"))):
+    paths = [p for p in sorted(glob.glob(os.path.join(work_dir, "Q*.csv")))
+             if not os.path.basename(p).endswith(("_concept_matrix.csv", "_questions.csv"))]
+    for csv_path in paths:
         qno = os.path.basename(csv_path)[:3]
         freqs = Counter()
         with open(csv_path, encoding="utf-8-sig", newline="") as f:
-            for r in csv.DictReader(f):
-                if not AN.is_open_text(r["子題號"]):
-                    continue                      # 選擇題的回答是選項文字，不進文字雲
-                t = AN.clean(r["作答內容"])
-                if not AN.is_valid(t):
-                    continue
-                freqs.update(AN.tokens(t))
+            rows = list(csv.DictReader(f))
+        rows = [dict(r, 作答內容=AN.clean(r.get("作答內容", ""))) for r in rows]
+        rows = [r for r in rows if AN.is_valid(r["作答內容"])]
+        open_labels = AN.open_sub_labels(rows)
+        for r in rows:
+            # 選擇題／測驗題的回答是選項文字或「答對／答錯」，不進文字雲
+            if r["子題號"] in open_labels:
+                freqs.update(AN.tokens(r["作答內容"]))
         freqs = {w: c for w, c in freqs.items()
                  if len(w) >= 2 or re.match(r"^[A-Za-z]{2,}$", w)}
         if len(freqs) < min_words:
