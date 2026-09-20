@@ -369,7 +369,14 @@ def process_sheet(ws, course, sem, do_mask_names, rep):
             continue
         key = alias.get(name) or (sid if STUDENT_ID_RE.match(sid) else name)
         if key not in numbers:
-            no = f"{sem}_{course}_{len(numbers) + 1}"
+            if _FIXED is not None:
+                # 固定對照表模式：名單內學生用官方編號；不在名單者（已退選等）從 101 起編，避免混淆
+                no = _FIXED.get(key) or _FIXED.get(sid) or _FIXED.get(name)
+                if not no:
+                    extra = sum(1 for v in numbers.values() if v not in _FIXED_VALUES)
+                    no = f"{sem}_{course}_{101 + extra}"
+            else:
+                no = f"{sem}_{course}_{len(numbers) + 1}"
             numbers[key] = no
             link_rows.append((no, name, sid, eml, r))
             name_to_number.setdefault(name, no)
@@ -432,6 +439,9 @@ def process_sheet(ws, course, sem, do_mask_names, rep):
         if b.email_col:
             protected.add((r, b.email_col))
 
+    if _FIXED_NAMES:            # 名單內所有同學的姓名都納入文字替換（即使本檔沒出現在姓名欄）
+        for _nm, _no in _FIXED_NAMES.items():
+            name_to_number.setdefault(_nm, _no)
     pairs = sorted(name_to_number.items(), key=lambda kv: -len(kv[0]))
     if pairs:
         for r in range(1, maxr + 1):
@@ -519,7 +529,32 @@ def workbook_from_csv(path):
 # --------------------------------------------------------------------------
 # 對外主函式
 # --------------------------------------------------------------------------
-def process_workbook(src, course_code, semester, mask_names=True):
+_FIXED = None            # {學號: 學生編號}（固定對照表模式）
+_FIXED_VALUES = set()
+_FIXED_NAMES = None      # {姓名: 學生編號}
+
+
+def load_fixed_codes(xlsx_path, sheet=None):
+    """讀「學生名單與學生編號對照表」：表頭需含 學號、姓名、學生編號。回傳 (學號→編號, 姓名→編號)。"""
+    wb = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+    ws = wb[sheet] if sheet else wb.worksheets[0]
+    rows = list(ws.iter_rows(values_only=True)); wb.close()
+    hdr = [str(c).strip() if c is not None else "" for c in rows[0]]
+    ci, cn, cc = hdr.index("學號"), hdr.index("姓名"), hdr.index("學生編號")
+    by_id, by_name = {}, {}
+    for r in rows[1:]:
+        if r[cc] and r[ci]:
+            by_id[normalize_id(r[ci])] = str(r[cc]).strip()
+            if r[cn]:
+                by_name[str(r[cn]).strip()] = str(r[cc]).strip()
+    return by_id, by_name
+
+
+def process_workbook(src, course_code, semester, mask_names=True, fixed_codes=None, fixed_names=None):
+    global _FIXED, _FIXED_VALUES, _FIXED_NAMES
+    _FIXED = dict(fixed_codes) if fixed_codes else None
+    _FIXED_VALUES = set(_FIXED.values()) if _FIXED else set()
+    _FIXED_NAMES = dict(fixed_names) if fixed_names else None
     """處理單一檔案，回傳 Report。失敗丟 MaskError（訊息可直接顯示給使用者）。"""
     course = validate_course(course_code)
     sem = validate_semester(semester)
