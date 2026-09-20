@@ -28,6 +28,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: PII guard (no real-looking student IDs in repo)
+        working-directory: .
+        run: python tools_pii_guard.py
       - name: Install deps
         run: |
           python -m pip install --upgrade pip

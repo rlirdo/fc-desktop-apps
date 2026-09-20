@@ -1,22 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-姓名遮罩與學生編號 NameMasker 2.0 — GUI／CLI 入口
+姓名遮罩與學生編號 NameMasker 2.1 — GUI／CLI 入口
 ====================================================
-把 Zuvio「下載數據」xlsx（或名冊 xlsx、通用 CSV）變成可以安全分析的檔案：
-  • A 欄插入「學生編號」（115-1_EC_1、115-1_EC_2…），同一個人跨區塊同號
-  • 學號欄、電子郵件欄每個字元改成 O（長度不變）
-  • 姓名欄第 2 字改成 O；自由文字裡的同學姓名改成該生的學生編號
-  • 新增工作表「學生編號連結姓名」（再識別鑰匙，只能留在自己電腦）
-  • 另存「原檔名02.xlsx」，原檔一個位元組都不動
+2.1 的做法：**先載入原始名單 → 產生固定學生編號對照表 → 再做姓名遮罩**。
+同一位學生在不同檔案、不同週次都會拿到同一個學生編號（2.0 是依檔案內出現
+順序編號，同一人在不同檔案會編到不同號，已知是缺陷）。
+
+流程：
+  ① 原始名單：Excel／CSV（要有「學號」「姓名」欄）或東華教務系統「選課名單」PDF
+     → 產生 `{學期}_{課程縮寫}_學生名單與學生編號對照表.xlsx`
+  ② 要處理的 Zuvio 檔（可多選）＋ 學期、課程縮寫
+  ③ 執行：A 欄插入「學生編號」、學號與電子郵件改成 OOOO、姓名第 2 字改 O、
+     自由文字裡的同學姓名改成學生編號，另存「原檔名02.xlsx」（原檔不動）。
+     不在名單的作答者（退選等）自 101 號起編，並**持久登記**回對照表。
 
 用法：
-  雙擊 NameMasker.exe                          → 開啟視窗
-  把 Excel 檔拖到 NameMasker.exe 的圖示上      → 直接處理（用上次的課程／學期設定）
-  NameMasker.exe 檔案.xlsx --course EC --semester 115-1 [--no-mask-names]
+  雙擊 NameMasker.exe                          → 開啟視窗（先載入名單）
+  把 Excel 檔拖到 NameMasker.exe 的圖示上      → 用上次記住的對照表直接處理
+  NameMasker.exe 檔案.xlsx --course EC --semester 115-1 --roster 名單.pdf
+  NameMasker.exe 檔案.xlsx --codebook 對照表.xlsx
+  NameMasker.exe --roster 名單.xlsx --course EC --semester 115-1 --make-codebook-only
+  NameMasker.exe 檔案.xlsx --no-roster         → 沒有名單，改用 2.0 的檔內順序編號
   NameMasker.exe --selftest                    → 自我測試（成功印 SELFTEST OK 並 exit 0）
   NameMasker.exe --version                     → 顯示版本
 
+其他旗標：--overwrite-codebook（用新名單重新產生對照表）、--no-mask-names。
 環境變數 NAMEMASKER_NO_DIALOG=1：命令列模式不跳訊息框（供自動化／CI 使用）。
 """
 import json
@@ -27,7 +36,7 @@ import traceback
 
 APP_NAME = "姓名遮罩與學生編號"
 EXE_NAME = "NameMasker"
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 DEFAULT_COURSE = "EC"
 DEFAULT_SEMESTER = "115-1"
@@ -47,10 +56,19 @@ from core_mask import (  # noqa: E402
     LINK_SHEET_HEADERS, LINK_SHEET_TITLE, MaskError, SUPPORTED_EXT,
     process_workbook, validate_course, validate_semester,
 )
+import roster as R  # noqa: E402
 
 _LOG_LINES = []
 SETTINGS_DIR = os.path.join(os.path.expanduser("~"), ".namemasker")
 SETTINGS_PATH = os.path.join(SETTINGS_DIR, "settings.json")
+
+NO_ROSTER_HINT = (
+    "還沒有載入「原始名單」或「學生編號對照表」。\n\n"
+    "2.1 版一律先載入名單，才能讓同一位學生在每一份檔案、每一週都拿到同一個學生編號。\n"
+    "請先開啟本程式，在①「原始名單」選一份 Excel／CSV 名單或東華「選課名單」PDF，\n"
+    "按「產生／更新對照表」之後再處理檔案。\n\n"
+    "（真的沒有名單時，可勾選「沒有名單，改依檔案內出現順序編號」；"
+    "命令列請加 --no-roster。不建議：同一學生在不同檔案編號會不同。）")
 
 
 # --------------------------------------------------------------------------
@@ -83,7 +101,8 @@ def write_log(name):
 
 
 def load_settings():
-    s = {"course_code": DEFAULT_COURSE, "semester": DEFAULT_SEMESTER, "mask_names": True}
+    s = {"course_code": DEFAULT_COURSE, "semester": DEFAULT_SEMESTER, "mask_names": True,
+         "codebook_path": "", "roster_path": ""}
     try:
         with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -102,48 +121,107 @@ def load_settings():
     except Exception:
         s["semester"] = DEFAULT_SEMESTER
     s["mask_names"] = bool(s["mask_names"])
+    s["codebook_path"] = str(s.get("codebook_path") or "")
+    s["roster_path"] = str(s.get("roster_path") or "")
     return s
 
 
 def save_settings(s):
     try:
         os.makedirs(SETTINGS_DIR, exist_ok=True)
+        base = load_settings()
+        base.update({k: v for k, v in s.items() if v is not None})
         with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
-            json.dump(s, f, ensure_ascii=False, indent=2)
+            json.dump(base, f, ensure_ascii=False, indent=2)
         return True
     except Exception:
         return False
 
 
 def parse_args(args):
-    """回傳 (檔案清單, course, semester, mask_names)；旗標值不會被當成檔案。"""
+    """回傳設定 dict；旗標的值不會被當成檔案。"""
     s = load_settings()
-    course, sem, mk = s["course_code"], s["semester"], s["mask_names"]
-    files, i = [], 0
+    o = {
+        "files": [],
+        "course": s["course_code"],
+        "semester": s["semester"],
+        "mask_names": s["mask_names"],
+        "roster": "",
+        "codebook": "",
+        "make_codebook_only": False,
+        "no_roster": False,
+        "overwrite_codebook": False,
+    }
+    i = 0
     while i < len(args):
         a = args[i]
-        if a in ("--course", "-c") and i + 1 < len(args):
-            course = args[i + 1]
+        nxt = args[i + 1] if i + 1 < len(args) else None
+        if a in ("--course", "-c") and nxt is not None:
+            o["course"] = nxt
             i += 2
             continue
-        if a in ("--semester", "-s") and i + 1 < len(args):
-            sem = args[i + 1]
+        if a in ("--semester", "-s") and nxt is not None:
+            o["semester"] = nxt
             i += 2
+            continue
+        if a == "--roster" and nxt is not None:
+            o["roster"] = nxt
+            i += 2
+            continue
+        if a == "--codebook" and nxt is not None:
+            o["codebook"] = nxt
+            i += 2
+            continue
+        if a == "--make-codebook-only":
+            o["make_codebook_only"] = True
+            i += 1
+            continue
+        if a == "--no-roster":
+            o["no_roster"] = True
+            i += 1
+            continue
+        if a == "--overwrite-codebook":
+            o["overwrite_codebook"] = True
+            i += 1
             continue
         if a == "--no-mask-names":
-            mk = False
+            o["mask_names"] = False
             i += 1
             continue
         if a == "--mask-names":
-            mk = True
+            o["mask_names"] = True
             i += 1
             continue
         if a.startswith("-"):
             i += 1
             continue
-        files.append(a)
+        o["files"].append(a)
         i += 1
-    return files, course, sem, mk
+    return o
+
+
+def resolve_codebook(opts, remembered=""):
+    """依 §1.5 決定要用哪一本對照表。回傳 (Codebook|None, 訊息 list)。
+
+    * 有 --roster／--codebook → 依 roster.build_codebook 產生／沿用。
+    * 沒有，但設定檔記得上次的對照表（拖檔到 exe 圖示）→ 用它。
+    * 都沒有：--no-roster 才放行（2.0 的檔內順序編號），否則丟 MaskError。
+    """
+    if opts.get("roster") or opts.get("codebook"):
+        cb, msgs = R.build_codebook(
+            roster_path=opts.get("roster") or None,
+            codebook_path=opts.get("codebook") or None,
+            semester=opts["semester"], course=opts["course"],
+            overwrite=opts.get("overwrite_codebook", False))
+        return cb, msgs
+    if remembered and os.path.isfile(remembered):
+        cb, msgs = R.build_codebook(codebook_path=remembered,
+                                    semester=opts["semester"], course=opts["course"])
+        msgs.insert(0, "（用上次記住的學生編號對照表）")
+        return cb, msgs
+    if opts.get("no_roster"):
+        return None, ["※ 沒有名單模式：改依檔案內出現順序編號（同一學生在不同檔案編號會不同）。"]
+    raise MaskError(NO_ROSTER_HINT)
 
 
 # --------------------------------------------------------------------------
@@ -169,7 +247,7 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
     SEM, CRS = "115-1", "EC"
     NO = {n: f"{SEM}_{CRS}_{n}" for n in range(1, 20)}
     try:
-        # ================= [1/8] 參數驗證 ==================================
+        # ================= [1/12] 參數驗證 =================================
         for bad in ("E", "ECC", "E1", "", "電化"):
             try:
                 validate_course(bad)
@@ -184,15 +262,15 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
             except MaskError:
                 pass
         assert validate_semester(" 115-1 ") == "115-1"
-        out("[1/8] 課程縮寫／學期格式驗證通過")
+        out("[1/12] 課程縮寫／學期格式驗證通過")
 
-        # ================= [2/8] 產生 Zuvio 合成檔 =========================
+        # ================= [2/12] 產生 Zuvio 合成檔 ========================
         src = os.path.join(tmp, "合成Zuvio.xlsx")
         SD.write_zuvio_sample(src)
         before = hashlib.sha256(open(src, "rb").read()).hexdigest()
-        out(f"[2/8] 已產生 Zuvio 格式合成檔（{len(SD.ZUVIO_ROWS)} 列、5 個表頭區塊）")
+        out(f"[2/12] 已產生 Zuvio 格式合成檔（{len(SD.ZUVIO_ROWS)} 列、5 個表頭區塊）")
 
-        # ================= [3/8] 執行主流程 ================================
+        # ================= [3/12] 執行主流程（無名單＝2.0 行為） ===========
         rep = process_workbook(src, CRS, SEM, mask_names=True)
         E = SD.ZUVIO_EXPECT
         for k, want in E.items():
@@ -201,7 +279,7 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
         assert os.path.basename(rep.dst) == "合成Zuvio02.xlsx", \
             f"輸出檔名應為 合成Zuvio02.xlsx，實際 {os.path.basename(rep.dst)}"
         assert os.path.dirname(rep.dst) == tmp, "輸出應與原檔同資料夾"
-        out(f"[3/8] 主流程統計全部符合：區塊 {rep.blocks}、學生 {rep.students}、"
+        out(f"[3/12] 主流程統計全部符合：區塊 {rep.blocks}、學生 {rep.students}、"
             f"學號遮罩 {rep.id_masked}、姓名遮罩 {rep.name_masked}、"
             f"文字替換 {rep.text_replacements}、對照表 {rep.link_rows}")
 
@@ -209,7 +287,7 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
         after = hashlib.sha256(open(src, "rb").read()).hexdigest()
         assert before == after, "原檔被更動了（不允許）"
 
-        # ================= [4/8] 讀回輸出檔逐項驗證 ========================
+        # ================= [4/12] 讀回輸出檔逐項驗證 =======================
         wb = openpyxl.load_workbook(rep.dst)
         ws = wb[SD.ZUVIO_SHEET]
 
@@ -287,10 +365,10 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
             assert ls.cell(i, 5).value == first_row, \
                 f"連結表第 {i} 列首次出現列應為 {first_row}，實際 {ls.cell(i, 5).value}"
         wb.close()
-        out("[4/8] 輸出檔逐項驗證通過（A 欄編號、跨區塊同號、匿名不編號、"
+        out("[4/12] 輸出檔逐項驗證通過（A 欄編號、跨區塊同號、匿名不編號、"
             "學號全 O、姓名遮罩、文字替換、無姓名殘留、連結表）")
 
-        # ================= [5/8] 02 → 03 遞增、--no-mask-names ==============
+        # ================= [5/12] 02 → 03 遞增、--no-mask-names ============
         rep2 = process_workbook(src, CRS, SEM, mask_names=True)
         assert os.path.basename(rep2.dst) == "合成Zuvio03.xlsx", \
             f"第二次輸出應為 合成Zuvio03.xlsx，實際 {os.path.basename(rep2.dst)}"
@@ -306,9 +384,9 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
         ws3 = wb3[SD.ZUVIO_SHEET]
         assert ws3.cell(14, 3).value == "王小明", "取消勾選時姓名欄應維持原樣"
         wb3.close()
-        out("[5/8] 輸出編號遞增（02→03）與「不遮姓名欄」選項驗證通過")
+        out("[5/12] 輸出編號遞增（02→03）與「不遮姓名欄」選項驗證通過")
 
-        # ================= [6/8] 名冊型（含電子郵件欄、None 表頭） ==========
+        # ================= [6/12] 名冊型（含電子郵件欄、None 表頭） ========
         rsrc = os.path.join(tmp, "合成名冊.xlsx")
         SD.write_roster_sample(rsrc)
         rrep = process_workbook(rsrc, CRS, SEM, mask_names=True)
@@ -324,10 +402,10 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
                 f"名冊第 {i} 列電子郵件應為 {len(row[3])} 個 O"
             assert wsr.cell(i, 6).value == row[4], "非郵件的 15 字說明欄不可被動到"
         wbr.close()
-        out("[6/8] 名冊型（第 1 列表頭、None 表頭、電子郵件欄）驗證通過："
+        out("[6/12] 名冊型（第 1 列表頭、None 表頭、電子郵件欄）驗證通過："
             f"郵件遮罩 {rrep.email_masked} 筆，長度不變")
 
-        # ================= [7/8] 通用 CSV ==================================
+        # ================= [7/12] 通用 CSV =================================
         csrc = os.path.join(tmp, "合成通用.csv")
         SD.write_csv_sample(csrc)
         crep = process_workbook(csrc, CRS, SEM, mask_names=True)
@@ -337,9 +415,9 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
         assert crep.dst.endswith("02.xlsx"), "CSV 應輸出成 xlsx"
         assert crep.email_masked == 0 and any("電子郵件" in n for n in crep.notes), \
             "沒有電子郵件欄時應在說明中註記"
-        out(f"[7/8] 通用 CSV → xlsx 驗證通過（{crep.students} 位學生）")
+        out(f"[7/12] 通用 CSV → xlsx 驗證通過（{crep.students} 位學生）")
 
-        # ================= [8/8] 錯誤處理 ==================================
+        # ================= [8/12] 錯誤處理 =================================
         bad = os.path.join(tmp, "沒有姓名欄.xlsx")
         wbb = openpyxl.Workbook()
         wbb.active.append(["座號", "分數"])
@@ -361,7 +439,198 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
             raise AssertionError("檔案不存在應丟出 MaskError")
         except MaskError:
             pass
-        out("[8/8] 錯誤處理（無姓名欄、課程縮寫格式、檔案不存在）驗證通過")
+        out("[8/12] 錯誤處理（無姓名欄、課程縮寫格式、檔案不存在）驗證通過")
+
+        # ================= [9/12] 原始名單 → 固定編號 ======================
+        WANT = {sid: f"{SEM}_{CRS}_{seq}" for seq, sid, _n, _k in SD.CLASS_STUDENTS}
+
+        # (a) 含序號的 Excel 名單 → 依序號
+        d1 = os.path.join(tmp, "名單_含序號")
+        os.makedirs(d1, exist_ok=True)
+        r1 = SD.write_roster_seq_sample(os.path.join(d1, "名單.xlsx"))
+        cb1, m1 = R.build_codebook(roster_path=r1, semester=SEM, course=CRS)
+        assert cb1.rule == "依序號", f"含序號名單應「依序號」，實際 {cb1.rule}"
+        assert len(cb1.students) == 5
+        assert cb1.roster_ids() == WANT, "含序號名單的編號不正確"
+        assert os.path.basename(cb1.path) == f"{SEM}_{CRS}_學生名單與學生編號對照表.xlsx"
+        assert os.path.dirname(cb1.path) == os.path.abspath(d1), "對照表應存到名單同資料夾"
+
+        # 對照表三張工作表與欄位
+        wcb = openpyxl.load_workbook(cb1.path)
+        assert R.CODE_SHEET in wcb.sheetnames and R.OUT_SHEET in wcb.sheetnames \
+            and R.NOTE_SHEET in wcb.sheetnames, "對照表應有 3 張工作表"
+        wsc = wcb[R.CODE_SHEET]
+        for c, h in enumerate(R.CODE_HEADERS, start=1):
+            assert wsc.cell(1, c).value == h, f"對照表第 {c} 欄標題應為 {h}"
+        for c, h in enumerate(R.OUT_HEADERS, start=1):
+            assert wcb[R.OUT_SHEET].cell(1, c).value == h
+        note_txt = "".join(str(r[0].value or "") for r in wcb[R.NOTE_SHEET].iter_rows())
+        assert "再識別鑰匙" in note_txt and "只留本機" in note_txt, "說明頁要有警語"
+        wcb.close()
+
+        # (b) 沒有序號的名單 → 依學號遞增排序
+        d2 = os.path.join(tmp, "名單_無序號")
+        os.makedirs(d2, exist_ok=True)
+        r2 = SD.write_roster_noseq_sample(os.path.join(d2, "名單.xlsx"))
+        cb2, _ = R.build_codebook(roster_path=r2, semester=SEM, course=CRS)
+        assert cb2.rule == "依學號排序", f"無序號名單應「依學號排序」，實際 {cb2.rule}"
+        assert cb2.roster_ids() == WANT, "依學號排序的編號應與依序號相同（本合成名單刻意設計）"
+
+        # (c) CSV 名單
+        d3 = os.path.join(tmp, "名單_csv")
+        os.makedirs(d3, exist_ok=True)
+        r3 = SD.write_roster_csv_sample(os.path.join(d3, "名單.csv"))
+        cb3, _ = R.build_codebook(roster_path=r3, semester=SEM, course=CRS)
+        assert cb3.roster_ids() == WANT, "CSV 名單編號不正確"
+
+        # (d) 已存在的對照表 → 沿用、不重編；--overwrite-codebook 才重建
+        cb1b, m1b = R.build_codebook(roster_path=r1, semester=SEM, course=CRS)
+        assert cb1b.rule == "沿用既有對照表", "對照表已存在時應沿用"
+        assert any("沿用既有編號" in x for x in m1b)
+        cb1c, _ = R.build_codebook(roster_path=r1, semester=SEM, course=CRS, overwrite=True)
+        assert cb1c.created and cb1c.roster_ids() == WANT
+
+        # (e) 載入「對照表本身」當名單 → 直接採用不重編
+        cbx, _ = R.build_codebook(codebook_path=cb1.path, semester=SEM, course=CRS)
+        assert cbx.roster_ids() == WANT, "直接載入對照表時編號應原樣沿用"
+        dsrc = R.parse_roster(cb1.path)
+        assert dsrc.kind == "codebook", "有「學生編號」欄的檔案應判定為對照表"
+
+        # (f) 重複學號 → 報錯
+        d4 = os.path.join(tmp, "名單_重複")
+        os.makedirs(d4, exist_ok=True)
+        dupe = os.path.join(d4, "名單.xlsx")
+        wbd = openpyxl.Workbook()
+        wbd.active.append(["學號", "姓名"])
+        wbd.active.append(["990054001", "王小明"])
+        wbd.active.append(["990054001", "王大明"])
+        wbd.save(dupe)
+        wbd.close()
+        try:
+            R.build_codebook(roster_path=dupe, semester=SEM, course=CRS)
+            raise AssertionError("重複學號應丟出 RosterError")
+        except R.RosterError as e:
+            assert "重複" in str(e)
+        out("[9/12] 原始名單解析與編號通過（含序號→依序號、無序號→依學號排序、CSV、"
+            "沿用既有對照表、載入對照表、重複學號報錯）")
+
+        # ================= [10/12] 東華「選課名單」PDF =====================
+        recs = R.parse_pdf_records(SD.PDF_LINES_ONELINE)
+        got = [(r.seq, r.sid, r.name, r.klass) for r in recs]
+        assert got == SD.PDF_EXPECT, f"PDF（同一行版面）解析不符：{len(got)} 筆"
+        recs2 = R.parse_pdf_records(SD.PDF_LINES_SPLIT)
+        got2 = [(r.seq, r.sid, r.name, r.klass) for r in recs2]
+        assert got2 == SD.PDF_EXPECT, f"PDF（分行版面）解析不符：{len(got2)} 筆"
+        assert R.parse_pdf_records(["這裡沒有任何學生"]) == [], "雜訊行不可解析出學生"
+
+        pdf_sample = resource_path(os.path.join("selftest", SD.PDF_SAMPLE_NAME))
+        if os.path.isfile(pdf_sample):
+            d5 = os.path.join(tmp, "名單_pdf")
+            os.makedirs(d5, exist_ok=True)
+            import shutil as _sh
+            p5 = os.path.join(d5, SD.PDF_SAMPLE_NAME)
+            _sh.copyfile(pdf_sample, p5)
+            cb5, _ = R.build_codebook(roster_path=p5, semester=SEM, course=CRS)
+            assert cb5.rule == "依序號" and cb5.roster_ids() == WANT, \
+                "合成 PDF 端對端解析的編號不正確"
+            out(f"[10/12] PDF 名單解析通過（同一行／分行兩種版面 + 合成 PDF 端對端 "
+                f"{len(cb5.students)} 人）")
+        else:
+            out("[10/12] PDF 名單解析通過（同一行／分行兩種版面；"
+                f"找不到 {SD.PDF_SAMPLE_NAME}，略過端對端測試）")
+
+        # 序號不連續 → 白話錯誤
+        try:
+            R.records_to_data(R.parse_pdf_records(SD.PDF_LINES_BAD), "壞名單.pdf")
+            raise AssertionError("序號不連續的 PDF 應丟出 RosterError")
+        except R.RosterError as e:
+            assert "請改用 Excel 名單" in str(e), f"錯誤訊息要白話：{e}"
+        try:
+            R.records_to_data([], "空.pdf")
+            raise AssertionError("讀不到學生的 PDF 應丟出 RosterError")
+        except R.RosterError:
+            pass
+
+        # ================= [11/12] 兩個順序不同的檔 → 同一學生同號 =========
+        wk = os.path.join(tmp, "兩週")
+        os.makedirs(wk, exist_ok=True)
+        rr = SD.write_roster_seq_sample(os.path.join(wk, "名單.xlsx"))
+        cbw, _ = R.build_codebook(roster_path=rr, semester=SEM, course=CRS)
+        f1 = SD.write_zuvio_week1(os.path.join(wk, "W1.xlsx"))
+        f2 = SD.write_zuvio_week2(os.path.join(wk, "W2.xlsx"))
+        rp1 = process_workbook(f1, CRS, SEM, True, codebook=cbw)
+        rp2 = process_workbook(f2, CRS, SEM, True, codebook=cbw)
+        assert rp1.roster_mode and rp2.roster_mode
+        assert (rp1.in_roster, rp1.out_roster) == (3, 1), \
+            f"W1 應為名單內 3、名單外 1，實際 {rp1.in_roster}/{rp1.out_roster}"
+        assert (rp2.in_roster, rp2.out_roster) == (2, 1), \
+            f"W2 應為名單內 2、名單外 1，實際 {rp2.in_roster}/{rp2.out_roster}"
+
+        def a_col(path):
+            w = openpyxl.load_workbook(path)
+            s = w.worksheets[0]
+            v = [s.cell(r, 1).value for r in range(4, s.max_row + 1)]
+            w.close()
+            return v
+
+        a1, a2 = a_col(rp1.dst), a_col(rp2.dst)
+        OUT_NO = f"{SEM}_{CRS}_{R.OUTSIDER_START}"
+        assert a1 == [NO[3], NO[1], OUT_NO, NO[5]], f"W1 的 A 欄不正確：{a1}"
+        assert a2 == [OUT_NO, NO[2], NO[1]], f"W2 的 A 欄不正確：{a2}"
+        assert a1[1] == a2[2] == NO[1], "同一位學生在兩個檔案必須是同一個編號"
+        assert a1[2] == a2[0] == OUT_NO, "名單外作答者在兩個檔案必須是同一個 101 編號"
+
+        # 名單外作答者已持久回寫對照表
+        students_back, outs_back = R.read_codebook(cbw.path)
+        assert len(students_back) == 5, "對照表的名單內人數不應改變"
+        assert len(outs_back) == 1 and outs_back[0].code == OUT_NO, \
+            f"名單外作答者應被回寫 1 筆（{OUT_NO}），實際 {len(outs_back)}"
+        assert outs_back[0].src == "W1.xlsx", "應記錄首次出現的檔名"
+        assert rp1.codebook_written and not rp2.codebook_written, \
+            "第一次才需要回寫，第二次沒有新登記"
+
+        # 換一本新載入的對照表（模擬下一週重開程式）→ 編號仍相同
+        cb_next, _ = R.build_codebook(codebook_path=cbw.path, semester=SEM, course=CRS)
+        assert cb_next.code_for(SD.OUTSIDER[0], SD.OUTSIDER[1]) == OUT_NO, \
+            "重新載入對照表後，名單外作答者應沿用同一個編號"
+
+        # 名單內所有姓名都要納入自由文字替換（即使該檔姓名欄沒出現這個人）
+        w2 = openpyxl.load_workbook(rp2.dst)
+        s2 = w2.worksheets[0]
+        txt2 = [s2.cell(r, 4).value for r in range(4, s2.max_row + 1)]
+        w2.close()
+        assert txt2[1] == f"參考了{NO[3]}的報告", f"名單內姓名應被換成編號：{txt2[1]!r}"
+        assert txt2[2] == f"這週和{NO[4]}同組", f"名單內姓名應被換成編號：{txt2[2]!r}"
+        for nm in [n for _s, _i, n, _k in SD.CLASS_STUDENTS if len(n) >= 3]:
+            for v in txt2:
+                assert nm not in str(v), "輸出不可殘留名單內的姓名"
+        out(f"[11/12] 跨檔固定編號通過（兩檔出現順序不同仍同號；名單外作答者 "
+            f"{OUT_NO} 兩檔一致並持久回寫對照表）")
+
+        # ================= [12/12] §1.5 未載入名單要被擋 ===================
+        o = parse_args([f1])
+        o["semester"], o["course"] = SEM, CRS
+        try:
+            resolve_codebook(o, remembered="")
+            raise AssertionError("未載入名單時應該被擋下來")
+        except MaskError as e:
+            assert "名單" in str(e)
+        o2 = parse_args([f1, "--no-roster"])
+        o2["semester"], o2["course"] = SEM, CRS
+        cb_none, msg_none = resolve_codebook(o2, remembered="")
+        assert cb_none is None and any("出現順序" in x for x in msg_none), \
+            "--no-roster 應放行並提醒風險"
+        o3 = parse_args([f1, "--roster", rr, "--course", CRS, "--semester", SEM])
+        cb_ok, _ = resolve_codebook(o3, remembered="")
+        assert cb_ok is not None and len(cb_ok.students) == 5
+        o4 = parse_args([f1])
+        o4["semester"], o4["course"] = SEM, CRS
+        cb_rem, msg_rem = resolve_codebook(o4, remembered=cbw.path)
+        assert cb_rem is not None and any("上次記住" in x for x in msg_rem), \
+            "拖檔模式應使用設定檔記住的對照表"
+        o5 = parse_args(["--roster", rr, "--make-codebook-only"])
+        assert o5["make_codebook_only"] and o5["roster"] == rr and not o5["files"]
+        out("[12/12] §1.5 未載入名單被擋、--no-roster 放行、--roster／記住的對照表可用")
 
         out("SELFTEST OK")
         return 0
@@ -376,20 +645,46 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
 # --------------------------------------------------------------------------
 # 命令列（含拖放到 exe 圖示）模式
 # --------------------------------------------------------------------------
-def run_cli(paths, course, sem, mask_names):
+def run_cli(opts):
     results, errors = [], []
     try:
-        course = validate_course(course)
-        sem = validate_semester(sem)
+        course = validate_course(opts["course"])
+        sem = validate_semester(opts["semester"])
     except MaskError as e:
         out(str(e))
         if os.environ.get("NAMEMASKER_NO_DIALOG") != "1":
             _msgbox(f"{APP_NAME}　參數錯誤", str(e), warn=True)
         return 1
+    opts["course"], opts["semester"] = course, sem
 
-    for p in paths:
+    s = load_settings()
+    cb = None
+    try:
+        cb, msgs = resolve_codebook(opts, remembered=s.get("codebook_path", ""))
+        for m in msgs:
+            out(m)
+    except (MaskError, R.RosterError) as e:
+        out(str(e))
+        if os.environ.get("NAMEMASKER_NO_DIALOG") != "1":
+            _msgbox(f"{APP_NAME}　請先載入名單", str(e), warn=True)
+        return 1
+
+    if cb is not None:
+        save_settings({"course_code": course, "semester": sem,
+                       "mask_names": opts["mask_names"], "codebook_path": cb.path,
+                       "roster_path": opts.get("roster") or s.get("roster_path", "")})
+
+    if opts.get("make_codebook_only"):
+        lines = list(cb.summary_lines()) if cb else ["沒有產生對照表。"]
+        for line in lines:
+            out(line)
+        if os.environ.get("NAMEMASKER_NO_DIALOG") != "1":
+            _msgbox(f"{APP_NAME}　對照表已完成", "\n".join(lines))
+        return 0
+
+    for p in opts["files"]:
         try:
-            rep = process_workbook(p, course, sem, mask_names)
+            rep = process_workbook(p, course, sem, opts["mask_names"], codebook=cb)
             results.append(rep)
             out(f"完成：{os.path.basename(rep.src)}")
             for line in rep.summary_lines():
@@ -404,15 +699,24 @@ def run_cli(paths, course, sem, mask_names):
     lines = []
     for rep in results:
         lines.append(f"✔ {os.path.basename(rep.src)}")
-        lines.append(f"    區塊 {rep.blocks} 個、編號學生 {rep.students} 位、"
-                     f"遮罩學號 {rep.id_masked} 筆、文字替換 {rep.text_replacements} 處")
+        if rep.roster_mode:
+            lines.append(f"    名單內 {rep.in_roster} 人、名單外作答者 {rep.out_roster} 人"
+                         f"、遮罩學號 {rep.id_masked} 筆、文字替換 {rep.text_replacements} 處")
+        else:
+            lines.append(f"    區塊 {rep.blocks} 個、編號學生 {rep.students} 位、"
+                         f"遮罩學號 {rep.id_masked} 筆、文字替換 {rep.text_replacements} 處")
         lines.append(f"    → {os.path.basename(rep.dst)}")
     for p, msg in errors:
         lines.append(f"✘ {os.path.basename(p)}\n    {msg}")
     lines.append("")
     lines.append(f"設定：學期 {sem}、課程 {course}、"
-                 f"{'含' if mask_names else '不含'}姓名欄遮罩")
-    lines.append(f"※ 工作表「{LINK_SHEET_TITLE}」是再識別鑰匙，只能留在自己的電腦，不要上傳。")
+                 f"{'含' if opts['mask_names'] else '不含'}姓名欄遮罩")
+    if cb is not None:
+        lines.append(f"對照表：{cb.path}")
+        lines.append("※ 對照表與工作表「%s」都是再識別鑰匙，只能留在自己的電腦，不要上傳。"
+                     % LINK_SHEET_TITLE)
+    else:
+        lines.append("※ 本次沒有用名單，學生編號依各檔案內出現順序產生（不同檔案不一致）。")
     lines.append("原檔案完全未更動；全程離線，資料未離開你的電腦。")
     body = "\n".join(lines)
 
@@ -458,8 +762,8 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
 
     root = tk.Tk()
     root.title(f"{APP_NAME}　{EXE_NAME} v{VERSION}")
-    root.geometry("820x640")
-    root.minsize(720, 560)
+    root.geometry("900x780")
+    root.minsize(780, 640)
     try:
         ico = resource_path("icon.ico")
         if os.path.exists(ico):
@@ -474,35 +778,73 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
     FS = (fam, 9)
 
     files = list(preset_files or [])
-    last_out_dir = {"path": None}
+    state = {"cb": None, "roster": cfg.get("roster_path", ""),
+             "codebook": cfg.get("codebook_path", ""), "out_dir": None}
 
-    tk.Label(root, text=APP_NAME, font=FT, anchor="w").pack(fill="x", padx=14, pady=(12, 0))
+    tk.Label(root, text=APP_NAME + "　2.1（先載入名單 → 固定學生編號 → 遮罩）",
+             font=FT, anchor="w").pack(fill="x", padx=14, pady=(10, 0))
     tk.Label(root,
-             text="把 Zuvio 下載數據（或名冊 xlsx／CSV）轉成可以安全分析的檔案："
-                  "A 欄加「學生編號」、學號與電子郵件改成 OOOO、姓名第 2 字改 O、"
-                  "自由文字裡的同學姓名改成學生編號，另存「原檔名02.xlsx」。原檔不會被更動。",
-             font=F, anchor="w", justify="left", wraplength=780, fg="#333333"
-             ).pack(fill="x", padx=14, pady=4)
+             text="① 先載入這門課的「原始名單」產生固定編號對照表 → "
+                  "② 選要處理的 Zuvio 檔 → ③ 執行。"
+                  "同一位學生在每一份檔案、每一週都會拿到同一個學生編號。"
+                  "原檔一個位元組都不會被更動。",
+             font=F, anchor="w", justify="left", wraplength=860, fg="#333333"
+             ).pack(fill="x", padx=14, pady=3)
     tk.Label(root, text="🔒 完全離線：只讀寫你電腦上的檔案，不連網、不上傳任何資料。",
-             font=FB, anchor="w", fg="#1b6b3a").pack(fill="x", padx=14, pady=(0, 6))
+             font=FB, anchor="w", fg="#1b6b3a").pack(fill="x", padx=14, pady=(0, 4))
 
-    # ---- 設定列 ----
-    setbox = tk.LabelFrame(root, text=" 這批檔案的設定 ", font=FB, fg="#204a87")
-    setbox.pack(fill="x", padx=14, pady=4)
-    inner = tk.Frame(setbox)
-    inner.pack(fill="x", padx=10, pady=8)
+    # ================= ① 原始名單 =========================================
+    rbox = tk.LabelFrame(root, text=" ① 原始名單（Excel／CSV／東華選課名單 PDF，"
+                                    "或既有的學生編號對照表） ", font=FB, fg="#204a87")
+    rbox.pack(fill="x", padx=14, pady=4)
 
+    line1 = tk.Frame(rbox)
+    line1.pack(fill="x", padx=10, pady=(8, 2))
+    v_roster = tk.StringVar(value=state["roster"] or state["codebook"])
+    tk.Entry(line1, textvariable=v_roster, font=(fam, 10)).pack(
+        side="left", fill="x", expand=True)
+    tk.Button(line1, text="選擇名單…", font=FB, width=11,
+              command=lambda: pick_roster()).pack(side="left", padx=(6, 0))
+
+    line2 = tk.Frame(rbox)
+    line2.pack(fill="x", padx=10, pady=(0, 2))
+    tk.Button(line2, text="產生／更新對照表", font=FB, width=16,
+              command=lambda: make_codebook()).pack(side="left")
+    tk.Button(line2, text="開啟對照表", font=F, width=11,
+              command=lambda: open_codebook()).pack(side="left", padx=6)
+    v_ow = tk.BooleanVar(value=False)
+    tk.Checkbutton(line2, text="用新名單重新編號（覆寫既有對照表）",
+                   variable=v_ow, font=FS).pack(side="left", padx=6)
+
+    lbl_roster = tk.Label(rbox, text="尚未載入名單。", font=FS, fg="#a33",
+                          anchor="w", justify="left", wraplength=860)
+    lbl_roster.pack(fill="x", padx=12, pady=(0, 4))
+
+    v_noroster = tk.BooleanVar(value=False)
+    tk.Checkbutton(rbox, text="沒有名單，改依檔案內出現順序編號"
+                             "（不建議：同一學生在不同檔案編號會不同）",
+                   variable=v_noroster, font=FS, fg="#a33",
+                   command=lambda: refresh_run_state()).pack(anchor="w", padx=12, pady=(0, 8))
+
+    # ================= ② 要處理的 Zuvio 檔 ================================
+    box = tk.LabelFrame(root, text=" ② 要處理的 Zuvio 檔（.xlsx / .xlsm / .csv，可多選） ",
+                        font=FB, fg="#204a87")
+    box.pack(fill="both", expand=False, padx=14, pady=4)
+
+    inner = tk.Frame(box)
+    inner.pack(fill="x", padx=10, pady=(8, 2))
     tk.Label(inner, text="學期", font=FB).pack(side="left")
     v_sem = tk.StringVar(value=cfg["semester"])
     tk.Entry(inner, textvariable=v_sem, font=F, width=9).pack(side="left", padx=(4, 2))
-    tk.Label(inner, text="（例 115-1）", font=FS, fg="#777777").pack(side="left", padx=(0, 14))
-
+    tk.Label(inner, text="（例 115-1）", font=FS, fg="#777777").pack(side="left", padx=(0, 12))
     tk.Label(inner, text="課程縮寫", font=FB).pack(side="left")
     v_crs = tk.StringVar(value=cfg["course_code"])
-    e_crs = tk.Entry(inner, textvariable=v_crs, font=F, width=6)
-    e_crs.pack(side="left", padx=(4, 2))
+    tk.Entry(inner, textvariable=v_crs, font=F, width=6).pack(side="left", padx=(4, 2))
     tk.Label(inner, text="（2 個英文字母，例 EC 環化）", font=FS, fg="#777777"
-             ).pack(side="left", padx=(0, 14))
+             ).pack(side="left", padx=(0, 12))
+    v_mask = tk.BooleanVar(value=cfg["mask_names"])
+    tk.Checkbutton(inner, text="同時遮罩姓名欄與文字內姓名（建議勾選）",
+                   variable=v_mask, font=F).pack(side="left")
 
     def upper_course(*_):
         s = v_crs.get()
@@ -510,56 +852,144 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
             v_crs.set(s.upper())
     v_crs.trace_add("write", upper_course)
 
-    v_mask = tk.BooleanVar(value=cfg["mask_names"])
-    tk.Checkbutton(inner, text="同時遮罩姓名欄與文字內姓名（建議勾選）",
-                   variable=v_mask, font=F).pack(side="left")
-
-    lbl_preview = tk.Label(setbox, text="", font=FS, fg="#555555", anchor="w")
-    lbl_preview.pack(fill="x", padx=12, pady=(0, 8))
-
-    def refresh_preview(*_):
-        s, c = v_sem.get().strip(), v_crs.get().strip()
-        lbl_preview.config(text=f"學生編號會長成：{s}_{c}_1、{s}_{c}_2 …　"
-                                "（同一位同學不管出現在哪個區塊，都是同一個編號）")
-    v_sem.trace_add("write", refresh_preview)
-    v_crs.trace_add("write", refresh_preview)
-    refresh_preview()
-
-    # ---- 檔案清單 ----
-    box = tk.LabelFrame(root, text=" 待處理的檔案（.xlsx / .xlsm / .csv，可多選） ",
-                        font=FB, fg="#204a87")
-    box.pack(fill="both", expand=False, padx=14, pady=4)
-    lb = tk.Listbox(box, font=F, height=6, activestyle="none")
-    sb = tk.Scrollbar(box, command=lb.yview)
+    flist = tk.Frame(box)
+    flist.pack(fill="both", expand=True, padx=10, pady=(2, 8))
+    lb = tk.Listbox(flist, font=F, height=6, activestyle="none")
+    sb = tk.Scrollbar(flist, command=lb.yview)
     lb.config(yscrollcommand=sb.set)
-    lb.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
-    sb.pack(side="right", fill="y", padx=(0, 8), pady=8)
+    lb.pack(side="left", fill="both", expand=True)
+    sb.pack(side="right", fill="y")
 
-    def refresh():
-        lb.delete(0, "end")
-        for p in files:
-            lb.insert("end", p)
-        btn_run.config(state=("normal" if files else "disabled"))
+    # ================= ③ 執行與摘要 =======================================
+    bar = tk.Frame(root)
+    bar.pack(fill="x", padx=14, pady=(2, 6))
+    tk.Button(bar, text="選擇 Zuvio 檔（可多選）", font=FB, width=20,
+              command=lambda: add_files()).pack(side="left")
+    tk.Button(bar, text="清除清單", font=F, width=9,
+              command=lambda: clear_files()).pack(side="left", padx=6)
+    btn_run = tk.Button(bar, text="③ 開始處理", font=FB, width=12, state="disabled",
+                        bg="#204a87", fg="white", activebackground="#16345f",
+                        activeforeground="white", command=lambda: do_run())
+    btn_run.pack(side="left", padx=6)
+    btn_open = tk.Button(bar, text="開啟輸出資料夾", font=F, width=14, state="disabled",
+                         command=lambda: open_folder())
+    btn_open.pack(side="left", padx=6)
+    tk.Button(bar, text="關於", font=F, width=6, command=lambda: about()).pack(side="right")
 
-    def add_files():
-        picked = filedialog.askopenfilenames(
-            title="選擇檔案（可按住 Ctrl 多選）",
-            filetypes=[("Excel／CSV", "*.xlsx *.xlsm *.csv"), ("所有檔案", "*.*")])
-        for p in picked:
-            if p not in files:
-                files.append(p)
-        refresh()
+    outbox = tk.LabelFrame(root, text=" ③ 處理結果 ", font=FB, fg="#204a87")
+    outbox.pack(fill="both", expand=True, padx=14, pady=(0, 6))
+    txt = tk.Text(outbox, font=(fam, 10), wrap="word", state="disabled",
+                  bg="#fbfbfb", relief="flat")
+    sb2 = ttk.Scrollbar(outbox, command=txt.yview)
+    txt.config(yscrollcommand=sb2.set)
+    txt.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
+    sb2.pack(side="right", fill="y", padx=(0, 8), pady=8)
 
-    def clear_files():
-        files.clear()
-        refresh()
+    tk.Label(root, text=f"{EXE_NAME} v{VERSION}　｜　也可以把檔案直接拖到本程式的圖示上執行"
+                        "（會沿用上次的對照表）　｜　東華大學自然資源與環境學系　仿生與環境工作坊",
+             font=FS, fg="#777777", anchor="w").pack(fill="x", padx=14, pady=(0, 10))
 
+    # ---- 行為 ----
     def log(msg=""):
         txt.config(state="normal")
         txt.insert("end", msg + "\n")
         txt.see("end")
         txt.config(state="disabled")
         root.update_idletasks()
+
+    def refresh_run_state():
+        ready = bool(files) and (state["cb"] is not None or v_noroster.get())
+        btn_run.config(state=("normal" if ready else "disabled"))
+
+    def refresh_files():
+        lb.delete(0, "end")
+        for p in files:
+            lb.insert("end", p)
+        refresh_run_state()
+
+    def show_roster(cb, msgs):
+        state["cb"] = cb
+        if cb is None:
+            lbl_roster.config(text="尚未載入名單。", fg="#a33")
+        else:
+            lbl_roster.config(
+                text=(f"已讀到 {len(cb.students)} 人　｜　編號規則：{cb.rule}　｜　"
+                      f"名單外作答者 {len(cb.outsiders)} 人（{R.OUTSIDER_START} 起）\n"
+                      f"對照表：{cb.path}\n"
+                      "⚠ 對照表含真名與學號＝再識別鑰匙，只留本機，不要上傳。"),
+                fg="#1b6b3a")
+        for m in msgs or []:
+            log(m)
+        refresh_run_state()
+
+    def pick_roster():
+        p = filedialog.askopenfilename(
+            title="選擇原始名單或學生編號對照表",
+            filetypes=[("名單（Excel／CSV／PDF）", "*.xlsx *.xlsm *.csv *.pdf"),
+                       ("所有檔案", "*.*")])
+        if not p:
+            return
+        v_roster.set(p)
+        make_codebook()
+
+    def make_codebook():
+        p = v_roster.get().strip().strip('"')
+        if not p:
+            messagebox.showwarning(APP_NAME, "請先選一份原始名單或學生編號對照表。")
+            return
+        try:
+            course = validate_course(v_crs.get())
+            sem = validate_semester(v_sem.get())
+        except MaskError as e:
+            messagebox.showwarning(APP_NAME, str(e))
+            return
+        try:
+            cb, msgs = R.build_codebook(roster_path=p, semester=sem, course=course,
+                                        overwrite=bool(v_ow.get()))
+        except (R.RosterError, MaskError) as e:
+            show_roster(None, [])
+            messagebox.showwarning(f"{APP_NAME}　名單讀不出來", str(e))
+            return
+        except Exception as e:  # noqa: BLE001
+            show_roster(None, [])
+            messagebox.showerror(APP_NAME, f"未預期的錯誤：{e}")
+            return
+        state["roster"] = "" if os.path.abspath(p) == cb.path else p
+        state["codebook"] = cb.path
+        save_settings({"course_code": course, "semester": sem,
+                       "mask_names": bool(v_mask.get()),
+                       "codebook_path": cb.path, "roster_path": state["roster"]})
+        show_roster(cb, msgs)
+
+    def open_codebook():
+        p = (state["cb"].path if state["cb"] else state["codebook"])
+        if not p or not os.path.isfile(p):
+            messagebox.showwarning(APP_NAME, "還沒有對照表，請先「產生／更新對照表」。")
+            return
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(p)  # noqa: S606
+            elif sys.platform == "darwin":
+                import subprocess
+                subprocess.Popen(["open", p])
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", p])
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror(APP_NAME, f"無法開啟對照表：{e}")
+
+    def add_files():
+        picked = filedialog.askopenfilenames(
+            title="選擇要處理的 Zuvio 檔（可按住 Ctrl 多選）",
+            filetypes=[("Excel／CSV", "*.xlsx *.xlsm *.csv"), ("所有檔案", "*.*")])
+        for p in picked:
+            if p not in files:
+                files.append(p)
+        refresh_files()
+
+    def clear_files():
+        files.clear()
+        refresh_files()
 
     def do_run():
         if not files:
@@ -570,22 +1000,32 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
         except MaskError as e:
             messagebox.showwarning(APP_NAME, str(e))
             return
+        cb = state["cb"]
+        if cb is None and not v_noroster.get():
+            messagebox.showwarning(f"{APP_NAME}　請先載入名單", NO_ROSTER_HINT)
+            return
         mk = bool(v_mask.get())
-        save_settings({"course_code": course, "semester": sem, "mask_names": mk})
+        save_settings({"course_code": course, "semester": sem, "mask_names": mk,
+                       "codebook_path": cb.path if cb else state["codebook"],
+                       "roster_path": state["roster"]})
 
         btn_run.config(state="disabled")
         txt.config(state="normal")
         txt.delete("1.0", "end")
         txt.config(state="disabled")
         log(f"設定：學期 {sem}、課程縮寫 {course}、"
-            f"{'含' if mk else '不含'}姓名遮罩　→ 學生編號格式 {sem}_{course}_1")
+            f"{'含' if mk else '不含'}姓名遮罩")
+        if cb is not None:
+            log(f"對照表：{cb.path}（名單內 {len(cb.students)} 人）")
+        else:
+            log("※ 沒有名單模式：學生編號依各檔案內出現順序產生（不同檔案不一致）。")
         log("")
         ok = fail = 0
         for p in list(files):
             try:
-                rep = process_workbook(p, course, sem, mk)
+                rep = process_workbook(p, course, sem, mk, codebook=cb)
                 ok += 1
-                last_out_dir["path"] = os.path.dirname(rep.dst)
+                state["out_dir"] = os.path.dirname(rep.dst)
                 log(f"✔ {os.path.basename(rep.src)}")
                 for line in rep.summary_lines():
                     log("    " + line)
@@ -599,10 +1039,14 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
                 log(f"✘ {os.path.basename(p)}　未預期的錯誤：{e}")
             log("")
         log(f"── 全部完成：成功 {ok} 個、失敗 {fail} 個。原檔案完全未更動。")
-        log(f"※ 工作表「{LINK_SHEET_TITLE}」可以把編號換回真名，是再識別鑰匙，")
+        if cb is not None:
+            log(f"── 名單內 {len(cb.students)} 人；名單外作答者累計 {len(cb.outsiders)} 人"
+                f"（{R.OUTSIDER_START} 起），已回寫對照表。")
+            show_roster(cb, [])
+        log(f"※ 對照表與工作表「{LINK_SHEET_TITLE}」可以把編號換回真名，是再識別鑰匙，")
         log("   只能留在自己的電腦，不要上傳雲端、不要寄給別人。")
         btn_run.config(state="normal")
-        btn_open.config(state=("normal" if last_out_dir["path"] else "disabled"))
+        btn_open.config(state=("normal" if state["out_dir"] else "disabled"))
         if fail == 0:
             messagebox.showinfo(APP_NAME, f"已完成 {ok} 個檔案。\n"
                                           "輸出檔就放在原檔案的同一個資料夾裡。")
@@ -611,7 +1055,7 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
                                              "請看下方訊息區的說明。")
 
     def open_folder():
-        d = last_out_dir["path"]
+        d = state["out_dir"]
         if not d or not os.path.isdir(d):
             return
         try:
@@ -630,42 +1074,29 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
         messagebox.showinfo(
             f"關於 {APP_NAME}",
             f"{APP_NAME}（{EXE_NAME}）v{VERSION}\n\n"
-            "1. 掃描整張工作表的所有「姓名」表頭，切出多個資料區塊。\n"
-            "2. A 欄插入「學生編號」（學期_課程_流水號），同一個人跨區塊同號。\n"
-            "3. 學號欄、電子郵件欄每個字元改成 O（長度不變）。\n"
-            "4. 姓名欄第 2 字改成 O；文字裡的同學姓名改成學生編號。\n"
-            f"5. 新增工作表「{LINK_SHEET_TITLE}」可換回真名 → 只能留本機。\n"
-            "6. 另存「原檔名02.xlsx」，原檔完全不動。\n\n"
+            "① 載入原始名單（Excel／CSV／東華選課名單 PDF）→ 產生\n"
+            "　 「{學期}_{課程}_學生名單與學生編號對照表.xlsx」。\n"
+            "　 有「序號」就用序號，沒有就依學號遞增排序給 1..N。\n"
+            "② 遮罩時一律用對照表的固定編號，同一位學生跨檔跨週同號；\n"
+            f"　 不在名單的作答者自 {R.OUTSIDER_START} 號起編並登記回對照表。\n"
+            "③ 學號、電子郵件每個字元改成 O；姓名欄第 2 字改 O；\n"
+            "　 自由文字裡的同學姓名改成學生編號。\n"
+            f"④ 新增工作表「{LINK_SHEET_TITLE}」可換回真名 → 只能留本機。\n"
+            "⑤ 另存「原檔名02.xlsx」，原檔完全不動。\n\n"
             "隱私：完全離線，不連網、不上傳任何資料。")
 
-    bar = tk.Frame(root)
-    bar.pack(fill="x", padx=14, pady=(2, 6))
-    tk.Button(bar, text="選擇檔案（可多選）", font=FB, command=add_files,
-              width=18).pack(side="left")
-    tk.Button(bar, text="清除清單", font=F, command=clear_files, width=9).pack(side="left", padx=6)
-    btn_run = tk.Button(bar, text="開始處理", font=FB, command=do_run, width=12,
-                        state="disabled", bg="#204a87", fg="white",
-                        activebackground="#16345f", activeforeground="white")
-    btn_run.pack(side="left", padx=6)
-    btn_open = tk.Button(bar, text="開啟輸出資料夾", font=F, command=open_folder,
-                         width=14, state="disabled")
-    btn_open.pack(side="left", padx=6)
-    tk.Button(bar, text="關於", font=F, command=about, width=6).pack(side="right")
+    # 啟動時：若設定檔記得上次的對照表，自動載入
+    if state["codebook"] and os.path.isfile(state["codebook"]):
+        try:
+            cb0, msgs0 = R.build_codebook(codebook_path=state["codebook"],
+                                          semester=cfg["semester"],
+                                          course=cfg["course_code"])
+            v_roster.set(state["codebook"])
+            show_roster(cb0, msgs0)
+        except Exception:
+            show_roster(None, [])
 
-    outbox = tk.LabelFrame(root, text=" 處理結果 ", font=FB, fg="#204a87")
-    outbox.pack(fill="both", expand=True, padx=14, pady=(0, 6))
-    txt = tk.Text(outbox, font=(fam, 10), wrap="word", state="disabled",
-                  bg="#fbfbfb", relief="flat")
-    sb2 = ttk.Scrollbar(outbox, command=txt.yview)
-    txt.config(yscrollcommand=sb2.set)
-    txt.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
-    sb2.pack(side="right", fill="y", padx=(0, 8), pady=8)
-
-    tk.Label(root, text=f"{EXE_NAME} v{VERSION}　｜　也可以把檔案直接拖到本程式的圖示上執行"
-                        "　｜　東華大學自然資源與環境學系　仿生與環境工作坊",
-             font=FS, fg="#777777", anchor="w").pack(fill="x", padx=14, pady=(0, 10))
-
-    refresh()
+    refresh_files()
     root.mainloop()
     return 0
 
@@ -687,14 +1118,14 @@ def main():
         write_log(f"{EXE_NAME}_selftest.log")
         return code
 
-    files, course, sem, mk = parse_args(args)
-    files = [f for f in files if f.lower().endswith(SUPPORTED_EXT) and os.path.isfile(f)]
-    if files:
-        code = run_cli(files, course, sem, mk)
+    opts = parse_args(args)
+    opts["files"] = [f for f in opts["files"]
+                     if f.lower().endswith(SUPPORTED_EXT) and os.path.isfile(f)]
+    if opts["files"] or opts["make_codebook_only"]:
+        code = run_cli(opts)
         write_log(f"{EXE_NAME}_cli.log")
         return code
-    return run_gui(preset_files=[], preset={"course_code": course, "semester": sem,
-                                            "mask_names": mk})
+    return run_gui(preset_files=[], preset=load_settings())
 
 
 if __name__ == "__main__":

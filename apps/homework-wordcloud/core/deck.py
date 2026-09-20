@@ -890,11 +890,16 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
         }, png, i)
         footer(prs.slides[-1], series, i + 2, total)
 
-    # ---- 4. 附錄：概念矩陣小表
+    # ---- 4. 附錄：概念矩陣小表（學生一律依**編號數字**排序，115-1_EC_2 在 _10 前面）
+    def _code_num(code):
+        m = re.search(r"_(\d+)$", str(code or ""))
+        return (0, int(m.group(1))) if m else (1, 0)
+
     if want_appendix:
         tables = [{"標題": f"{q['題號']}（前十位）",
                    "概念": [f["概念"] for f in q["重點概念"]],
-                   "學生編號": list(q.get("概念矩陣", {}).keys())[:10],
+                   "學生編號": sorted(q.get("概念矩陣", {}).keys(),
+                                  key=_code_num)[:10],
                    "矩陣": q.get("概念矩陣", {})} for q in appendix_qs[:3]]
         n_show = sum(len(t["學生編號"]) for t in tables)
         slide_appendix(prs, {

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-mask.py — 姓名遮罩＋學生編號（HomeworkWordCloud 2.0）
+mask.py — 姓名遮罩＋學生編號（HomeworkWordCloud 2.1）
 
 這個檔把「姓名遮罩與學生編號」（NameMasker 2.0）的核心規則**複製**一份進來，
 讓本程式在拿到「原始 Zuvio 匯出檔」時也能自己完成去識別化，
@@ -11,9 +11,13 @@ mask.py — 姓名遮罩＋學生編號（HomeworkWordCloud 2.0）
          王小明 → 王O明　　李明 → 李O　　歐陽小花 → 歐O小花
      已經遮罩過的姓名（王O明）再遮一次不會變形（冪等）。
   2. 學號／電子郵件：每個字元都換成 O，長度不變
-         411354043 → OOOOOOOOO　　abc@x.tw → OOOOOOOO
+         990000043 → OOOOOOOOO　　abc@x.tw → OOOOOOOO
   3. 學生編號：`{學期}_{課程縮寫}_{n}`，例如 `115-1_EC_3`
-     同一位同學在整個檔案（跨區塊）拿同一個編號；n 依首次出現順序 1, 2, 3…
+     **2.1 起的預設**：n 來自 TA 提供的原始名單所產生的「固定對照表」
+     （`core/roster.py`），同一位同學整學期、跨題、跨週都是同一個編號（`FixedCoder`）。
+     名單外的作答者（退選等）自 101 起持久登記在對照表裡。
+     只有明確選擇「沒有名單」時才退回 2.0 的行為（`StudentCoder`：依檔案內
+     首次出現順序編號 —— 同一位同學在不同檔案會拿到不同編號，不建議）。
      編號鍵優先用 9 碼學號，沒有學號才用姓名。
   4. 自由文字：出現在名冊上的真實姓名 → 換成該生的學生編號
          「和王小明討論」→「和 115-1_EC_3 討論」
@@ -120,7 +124,11 @@ def make_code(semester, course, n):
 
 
 class StudentCoder:
-    """把（學號, 姓名）對應到固定的學生編號；依首次出現順序編號。"""
+    """把（學號, 姓名）對應到學生編號；**依首次出現順序**編號。
+
+    ⚠ 2.0 的舊行為：同一位同學在不同檔案會拿到不同編號，沒辦法跨題跨週追蹤。
+    2.1 只有在使用者明確選擇「沒有名單」時才會用到它；正常請用 `FixedCoder`。
+    """
 
     def __init__(self, semester=DEFAULT_SEMESTER, course=DEFAULT_COURSE):
         self.semester = normalize_semester(semester)
@@ -163,6 +171,48 @@ class StudentCoder:
     @property
     def count(self):
         return self._n
+
+
+class FixedCoder:
+    """2.1 預設：依 TA 提供的**固定對照表**給學生編號。
+
+    * 名單內的同學：編號來自對照表「學生編號對照」工作表，整學期固定。
+    * 名單外的作答者（退選、旁聽…）：由對照表持久登記，自 101 起遞增，
+      跨檔跨週一致（處理完會回寫對照表）。
+    * 自由文字替換用的 `name_to_code()` 涵蓋**名單內所有姓名**，
+      即使這個檔案的姓名欄沒有出現過（SPEC §1.4）。
+
+    參數 codebook 是 `core.roster.Codebook`（只用 duck typing，避免循環匯入）。
+    """
+
+    def __init__(self, codebook, source_file=""):
+        self.cb = codebook
+        self.source_file = source_file
+        self.semester = getattr(codebook, "semester", DEFAULT_SEMESTER)
+        self.course = getattr(codebook, "course", DEFAULT_COURSE)
+
+    def set_source(self, source_file):
+        """換檔案時記下檔名，名單外作答者的「首次出現檔案」才寫得對。"""
+        self.source_file = source_file or ""
+
+    def code_for(self, sid, name):
+        name_s = str(name or "").strip()
+        sid_s = str(sid or "").strip()
+        if name_s in NOT_A_NAME and not is_student_id(sid_s):
+            return ""                       # 匿名作答者：不編號
+        if not sid_s and not name_s:
+            return ""
+        return self.cb.code_for(sid_s, name_s, self.source_file)
+
+    def name_to_code(self):
+        return dict(self.cb.name_to_code())
+
+    def roster_names(self):
+        return list(self.cb.names())
+
+    @property
+    def count(self):
+        return self.cb.count
 
 
 # ------------------------------------------------------------------ 自由文字

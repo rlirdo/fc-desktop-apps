@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec — 姓名遮罩與學生編號 NameMasker 2.0
+"""PyInstaller spec — 姓名遮罩與學生編號 NameMasker 2.1
 
 打包：
     pyinstaller build.spec
@@ -31,7 +31,9 @@ for f in ("icon.ico", "icon.png"):
     p = os.path.join(HERE, f)
     if os.path.exists(p):
         datas.append((p, "."))
-for f in ("樣本_Zuvio合成資料.xlsx", "樣本_名冊合成資料.xlsx", "樣本_通用格式.csv"):
+for f in ("樣本_Zuvio合成資料.xlsx", "樣本_名冊合成資料.xlsx", "樣本_通用格式.csv",
+          "樣本_原始名單_含序號.xlsx", "樣本_原始名單_無序號.xlsx", "樣本_原始名單.csv",
+          "樣本_選課名單_合成.pdf"):
     sample = os.path.join(HERE, "selftest", f)
     if os.path.exists(sample):
         datas.append((sample, "selftest"))
@@ -41,7 +43,7 @@ a = Analysis(
     pathex=[HERE],
     binaries=[],
     datas=datas,
-    hiddenimports=["openpyxl", "sample_data", "core_mask"],
+    hiddenimports=["openpyxl", "sample_data", "core_mask", "roster", "pypdf"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -87,7 +89,7 @@ if IS_MAC:
         info_plist={
             "CFBundleName": "NameMasker",
             "CFBundleDisplayName": "姓名遮罩與學生編號",
-            "CFBundleShortVersionString": "2.0.0",
+            "CFBundleShortVersionString": "2.1.0",
             "NSHighResolutionCapable": True,
         },
     )

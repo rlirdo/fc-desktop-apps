@@ -33,6 +33,11 @@ for fn in sorted(os.listdir(os.path.join(HERE, 'sample_input'))):
     if fn.lower().endswith(('.xlsx', '.csv')):
         datas.append((os.path.join(HERE, 'sample_input', fn), 'sample_input'))
 
+# selftest 用的合成名單 PDF（虛構姓名／學號），--selftest 的端對端 PDF 解析要用
+_st = os.path.join(HERE, 'selftest', '樣本_選課名單_合成.pdf')
+if os.path.exists(_st):
+    datas.append((_st, 'selftest'))
+
 # jieba：只要 dict.txt 等字典檔，跳過 lac_small 的 paddle 模型
 datas += [(src, dst) for src, dst in collect_data_files('jieba')
           if 'lac_small' not in src.replace('/', os.sep).split(os.sep)]
@@ -61,8 +66,11 @@ hiddenimports = [
     'wordcloud', 'wordcloud.query_integral_image',
     'PIL.Image', 'PIL.ImageDraw', 'PIL.ImageFont', 'PIL.ImageColor',
     'numpy', 'openpyxl', 'pptx',
+    # 2.1：東華教務系統選課名單 PDF 的名單解析（純 Python，不用 PyMuPDF）
+    'pypdf', 'pypdf.generic', 'pypdf._page', 'pypdf._reader',
 ]
 hiddenimports += collect_submodules('core')
+hiddenimports += collect_submodules('pypdf')
 
 excludes = [
     # 注意：不要排除 unittest／test，pyparsing（matplotlib 相依）會 import 它們
@@ -122,7 +130,7 @@ if sys.platform == 'darwin':
         info_plist={
             'CFBundleName': 'HomeworkWordCloud',
             'CFBundleDisplayName': '學生作業文字雲',
-            'CFBundleShortVersionString': '2.0.0',
+            'CFBundleShortVersionString': '2.1.0',
             'NSHighResolutionCapable': True,
         },
     )

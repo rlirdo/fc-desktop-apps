@@ -6,11 +6,21 @@ app.py — 學生作業文字雲（HomeworkWordCloud）桌面版入口
 （或原始 Zuvio 匯出、通用 CSV）變成「同學作答分析」簡報＋文字雲＋概念矩陣＋提問分類。
 輸出一律使用學生編號（例 115-1_EC_3），姓名已遮罩、學號與 email 全部改成 O。
 
+2.1 起：輸入若是**原始 Zuvio 匯出檔**（A 欄沒有「學生編號」），
+必須先提供「原始名單或學生編號對照表」，學生編號才會整學期固定。
+
 雙擊 exe → 出現視窗；也可以用命令列：
     HomeworkWordCloud.exe --selftest                          無視窗自我測試
                                                               （成功印 SELFTEST OK、回傳碼 0）
+    HomeworkWordCloud.exe --run --input <資料夾> --output <資料夾>
+            [--week N] [--roster 名單.(xlsx|csv|pdf) | --codebook 對照表.xlsx]
+            [--no-roster] [--overwrite-codebook]
+            [--course EC] [--semester 115-1] [--course-name 環境化學] [--thumbs]
+    HomeworkWordCloud.exe --make-codebook-only --roster 名單.pdf
+            [--course EC] [--semester 115-1] [--overwrite-codebook]
     HomeworkWordCloud.exe --check-privacy <輸出資料夾>         隱私檢查
                                                               [--input <原始輸入資料夾>]
+                                                              [--codebook 對照表.xlsx]
     HomeworkWordCloud.exe --version                           印版本
 """
 import os
@@ -37,6 +47,14 @@ if sys.stdout is None:
     sys.stdout = _NullIO()
 if sys.stderr is None:
     sys.stderr = _NullIO()
+
+# 打包後的 console=False exe 被導向到管線時，Windows 會用 cp950，
+# 訊息裡的「⚠」之類的字會讓 print 直接丟 UnicodeEncodeError。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 sys.path.insert(0, getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))))
 
@@ -92,22 +110,54 @@ def _opt(argv, name):
     return ""
 
 
-def run_check_privacy(argv):
-    """--check-privacy <輸出資料夾> [--input <原始輸入資料夾>]
+def _cli_log():
+    return lambda *a: print(" ".join(str(x) for x in a), flush=True)   # noqa: E731
 
-    掃描輸出資料夾，比對名冊姓名、9 碼學號與電子郵件樣式；0 命中才回傳 0。
+
+def _cfg_from_argv(argv):
+    """讀設定檔，再用命令列參數覆寫。"""
+    cfg = P.load_config()
+    for opt, key in (("--course", "course_code"), ("--semester", "semester"),
+                     ("--course-name", "course_name"), ("--teacher", "teacher"),
+                     ("--ta", "ta_name"), ("--start", "semester_start")):
+        v = _opt(argv, opt)
+        if v:
+            cfg[key] = v
+    cfg["course_code"] = P.norm_course_code(cfg.get("course_code"))
+    cfg["semester"] = P.norm_semester(cfg.get("semester"))
+    return cfg
+
+
+def _codebook_from_argv(argv, cfg, log):
+    """--roster／--codebook／--no-roster → (Codebook 或 None, no_roster)。"""
+    no_roster = "--no-roster" in argv
+    src = _opt(argv, "--roster") or _opt(argv, "--codebook")
+    if not src:
+        return None, no_roster
+    cb = P.load_codebook_for(cfg, src, overwrite="--overwrite-codebook" in argv, log=log)
+    return cb, no_roster
+
+
+def run_check_privacy(argv):
+    """--check-privacy <輸出資料夾> [--input <原始輸入資料夾>] [--codebook 對照表.xlsx]
+
+    掃描輸出資料夾，比對名冊姓名、**對照表的真實姓名與學號**、9 碼學號與電子郵件樣式；
+    0 命中才回傳 0。
     """
     target = _opt(argv, "--check-privacy")
     if not target:
         rest = [a for a in argv if not a.startswith("-")]
         target = rest[0] if rest else ""
     src = _opt(argv, "--input") or None
-    log = lambda *a: print(" ".join(str(x) for x in a), flush=True)   # noqa: E731
+    log = _cli_log()
     if not target:
-        log("用法：HomeworkWordCloud.exe --check-privacy <輸出資料夾> [--input <輸入資料夾>]")
+        log("用法：HomeworkWordCloud.exe --check-privacy <輸出資料夾> "
+            "[--input <輸入資料夾>] [--codebook 對照表.xlsx]")
         return 2
     try:
-        hits = P.check_privacy(target, input_dir=src, log=log)
+        cfg = _cfg_from_argv(argv)
+        cb, _ = _codebook_from_argv(argv, cfg, log)
+        hits = P.check_privacy(target, input_dir=src, log=log, codebook=cb)
     except P.PipelineError as e:
         log(str(e))
         return 2
@@ -115,6 +165,55 @@ def run_check_privacy(argv):
         log(traceback.format_exc())
         return 2
     return 1 if hits else 0
+
+
+def run_make_codebook(argv):
+    """--make-codebook-only --roster 名單.(xlsx|csv|pdf)：只產生／更新對照表。"""
+    log = _cli_log()
+    src = _opt(argv, "--roster") or _opt(argv, "--codebook")
+    if not src:
+        log("用法：HomeworkWordCloud.exe --make-codebook-only "
+            "--roster 名單.(xlsx|csv|pdf) [--course EC] [--semester 115-1] "
+            "[--overwrite-codebook]")
+        return 2
+    try:
+        cfg = _cfg_from_argv(argv)
+        P.make_codebook_only(cfg, src, overwrite="--overwrite-codebook" in argv, log=log)
+    except P.PipelineError as e:
+        log(str(e))
+        return 2
+    except Exception:
+        log(traceback.format_exc())
+        return 2
+    return 0
+
+
+def run_cli_week(argv):
+    """--run --input <資料夾> --output <資料夾> [--week N] [--roster/--codebook/--no-roster]"""
+    log = _cli_log()
+    in_dir = _opt(argv, "--input")
+    out_dir = _opt(argv, "--output") or P.default_output_root()
+    week = _opt(argv, "--week")
+    if not in_dir:
+        log("用法：HomeworkWordCloud.exe --run --input <輸入資料夾> "
+            "[--output <輸出資料夾>] [--week N] "
+            "[--roster 名單.(xlsx|csv|pdf) | --codebook 對照表.xlsx] [--no-roster]")
+        return 2
+    try:
+        cfg = _cfg_from_argv(argv)
+        cb, no_roster = _codebook_from_argv(argv, cfg, log)
+        P.run_week(cfg, in_dir, out_dir,
+                   week_no=int(week) if str(week).isdigit() else None,
+                   thumbs="--thumbs" in argv, log=log,
+                   codebook=cb, no_roster=no_roster)
+    except P.PipelineError as e:
+        log("")
+        log("[沒有跑完] " + str(e))
+        return 2
+    except Exception:
+        log(traceback.format_exc())
+        return 2
+    return 0
 
 
 # ------------------------------------------------------------------ GUI
@@ -127,8 +226,8 @@ def run_gui():
 
     root = tk.Tk()
     root.title(f"{P.APP_TITLE}　{P.APP_NAME} {P.VERSION}")
-    root.geometry("1040x720")
-    root.minsize(900, 600)
+    root.geometry("1060x820")
+    root.minsize(940, 680)
     try:
         ico = P.resource_path("icon.ico")
         if os.path.exists(ico) and sys.platform.startswith("win"):
@@ -219,6 +318,50 @@ def run_gui():
     ttk.Button(fold, text="瀏覽…", command=lambda: browse(v_out, "選擇輸出資料夾")
                ).grid(row=1, column=2, **pad)
 
+    # ---------------- 名單／對照表（2.1）
+    rost = ttk.LabelFrame(body, text="原始名單或學生編號對照表"
+                                     "（輸入是原始 Zuvio 檔時必備）", padding=8)
+    rost.pack(fill="x", pady=(8, 0))
+    rost.columnconfigure(1, weight=1)
+
+    v_cb = tk.StringVar(value=cfg.get("codebook_path", ""))
+    v_cbinfo = tk.StringVar(
+        value=("上次使用：" + os.path.basename(cfg.get("codebook_path", ""))
+               + "（按「產生／更新對照表」確認）") if cfg.get("codebook_path")
+        else "尚未載入名單／對照表")
+    v_noroster = tk.BooleanVar(value=False)
+    v_overwrite = tk.BooleanVar(value=False)
+    cbstate = {"cb": None}
+
+    def browse_cb():
+        p = filedialog.askopenfilename(
+            title="選擇原始名單或學生編號對照表",
+            initialdir=os.path.dirname(v_cb.get()) or os.path.expanduser("~"),
+            filetypes=[("名單／對照表", "*.xlsx *.xlsm *.csv *.pdf"),
+                       ("Excel", "*.xlsx *.xlsm"), ("CSV", "*.csv"),
+                       ("選課名單 PDF", "*.pdf"), ("所有檔案", "*.*")])
+        if p:
+            v_cb.set(os.path.normpath(p))
+            cbstate["cb"] = None
+            v_cbinfo.set("已選檔，按「產生／更新對照表」或直接按「跑本週」。")
+
+    ttk.Label(rost, text="名單／對照表檔").grid(row=0, column=0, sticky="e", **pad)
+    ttk.Entry(rost, textvariable=v_cb).grid(row=0, column=1, sticky="ew", **pad)
+    ttk.Button(rost, text="瀏覽…", command=browse_cb).grid(row=0, column=2, **pad)
+
+    rbar = ttk.Frame(rost)
+    rbar.grid(row=1, column=0, columnspan=3, sticky="w", padx=6, pady=(2, 0))
+    ttk.Label(rost, textvariable=v_cbinfo, foreground="#065A82"
+              ).grid(row=2, column=0, columnspan=3, sticky="w", padx=6)
+    ttk.Checkbutton(rost, variable=v_noroster,
+                    text="沒有名單，改依檔案內出現順序編號"
+                         "（不建議：同一學生在不同檔案編號會不同）"
+                    ).grid(row=3, column=0, columnspan=3, sticky="w", padx=6, pady=(4, 0))
+    ttk.Label(rost, foreground="#64748B",
+              text="支援 Excel／CSV（要有「學號」「姓名」欄）與東華教務系統的選課名單 PDF。"
+                   "　⚠ 對照表含真實姓名與學號，只留本機、不要上傳。"
+              ).grid(row=4, column=0, columnspan=3, sticky="w", padx=6)
+
     # ---------------- 按鈕
     bar = ttk.Frame(body, padding=(0, 8))
     bar.pack(fill="x")
@@ -279,6 +422,7 @@ def run_gui():
             "semester": P.norm_semester(v_sem.get()),
             "input_dir": v_in.get().strip(),
             "output_dir": v_out.get().strip(),
+            "codebook_path": v_cb.get().strip(),
         })
         return c
 
@@ -318,6 +462,8 @@ def run_gui():
                 kind, payload = msgq.get_nowait()
                 if kind == "log":
                     append(payload)
+                elif kind == "cbinfo":
+                    v_cbinfo.set(payload)
                 elif kind == "done":
                     running["on"] = False
                     set_busy(False)
@@ -345,13 +491,65 @@ def run_gui():
               lambda log: P.run_demo(current_cfg(), out_root(),
                                      thumbs=v_thumb.get(), log=log))
 
+    def ensure_codebook(log, overwrite=False):
+        """跑之前先準備好對照表（沒選檔就回 None，交給 pipeline 依 §1.5 擋下）。"""
+        src = v_cb.get().strip()
+        if not src:
+            cbstate["cb"] = None
+            return None
+        cb = P.load_codebook_for(current_cfg(), src, overwrite=overwrite, log=log)
+        cbstate["cb"] = cb
+        msgq.put(("cbinfo", P.describe_codebook(cb) +
+                  (f"　對照表：{os.path.basename(cb.path)}" if cb and cb.path else "")))
+        return cb
+
+    def do_make_codebook():
+        if not v_cb.get().strip():
+            messagebox.showwarning(P.APP_TITLE,
+                                   "請先在「名單／對照表檔」選一份檔案"
+                                   "（Excel／CSV／選課名單 PDF）。")
+            return
+
+        def job(log):
+            cb = P.make_codebook_only(current_cfg(), v_cb.get().strip(),
+                                      overwrite=v_overwrite.get(), log=log)
+            cbstate["cb"] = cb
+            msgq.put(("cbinfo", P.describe_codebook(cb) +
+                      f"　對照表：{os.path.basename(cb.path)}"))
+
+        start("產生／更新對照表", job)
+
+    def do_open_codebook():
+        cb = cbstate.get("cb")
+        p = (cb.path if cb and cb.path else "") or v_cb.get().strip()
+        if not p or not os.path.exists(p):
+            messagebox.showwarning(P.APP_TITLE,
+                                   "還沒有對照表可以開。請先選名單檔，"
+                                   "再按「產生／更新對照表」。")
+            return
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(p)                                # noqa: S606
+            else:
+                import subprocess
+                subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", p])
+            put(f"已開啟對照表：{p}")
+        except Exception as e:
+            messagebox.showwarning(P.APP_TITLE, f"打不開對照表：{e}")
+
     def do_week(n=None):
         if not v_in.get().strip():
             messagebox.showwarning(P.APP_TITLE, "請先選「輸入資料夾」（放 Zuvio 下載的 xlsx）。")
             return
         label = "跑本週" if n is None else f"跑第 {n} 週"
-        start(label, lambda log: P.run_week(current_cfg(), v_in.get().strip(), out_root(),
-                                            week_no=n, thumbs=v_thumb.get(), log=log))
+
+        def job(log):
+            cb = ensure_codebook(log, overwrite=v_overwrite.get())
+            return P.run_week(current_cfg(), v_in.get().strip(), out_root(),
+                              week_no=n, thumbs=v_thumb.get(), log=log,
+                              codebook=cb, no_roster=v_noroster.get())
+
+        start(label, job)
 
     def do_week_n():
         s = v_week.get().strip()
@@ -368,7 +566,14 @@ def run_gui():
         src = v_in.get().strip() or None
 
         def job(log):
-            hits = P.check_privacy(d, input_dir=src, log=log)
+            cb = cbstate.get("cb")
+            if cb is None and v_cb.get().strip():
+                try:
+                    cb = ensure_codebook(log)
+                except P.PipelineError as e:
+                    log(f"  [提醒] 讀不到對照表，改用一般掃描：{e}")
+                    cb = None
+            hits = P.check_privacy(d, input_dir=src, log=log, codebook=cb)
             if hits:
                 raise P.PipelineError(
                     f"隱私檢查沒有過：發現 {hits} 處未遮罩的真實姓名。\n"
@@ -383,6 +588,11 @@ def run_gui():
         except P.PipelineError as e:
             messagebox.showwarning(P.APP_TITLE, str(e))
 
+    add_btn(rbar, "產生／更新對照表", do_make_codebook, width=18)
+    add_btn(rbar, "開啟對照表", do_open_codebook, width=12)
+    ttk.Checkbutton(rbar, text="覆寫既有對照表（名單改版時才勾）",
+                    variable=v_overwrite).pack(side="left", padx=(6, 0))
+
     add_btn(row1, "跑示範", do_demo, width=10)
     add_btn(row1, "跑本週", do_week, width=10)
     add_btn(row1, "跑指定週次", do_week_n, width=12)
@@ -396,8 +606,11 @@ def run_gui():
     append(f"{P.APP_TITLE}　版本 {P.VERSION}")
     append("兩步流程：① 先用「姓名遮罩與學生編號」處理 Zuvio 匯出的 xlsx，"
            "② 把它的輸出放進「輸入資料夾」再按「跑本週」。")
-    append("步驟：1) 填課程資訊與課程縮寫／學期　2) 選輸入／輸出資料夾　3) 按「跑本週」"
-           "　4) 按「隱私檢查」確認 0 命中。")
+    append("2.1 新增：直接丟**原始 Zuvio 匯出檔**也可以，但要先在"
+           "「原始名單或學生編號對照表」選一份名單（Excel／CSV／選課名單 PDF），"
+           "學生編號才會整學期固定。")
+    append("步驟：1) 填課程資訊與課程縮寫／學期　2) 選名單／對照表　3) 選輸入／輸出資料夾"
+           "　4) 按「跑本週」　5) 按「隱私檢查」確認 0 命中。")
     append("隱私鐵律：輸出一律用學生編號；姓名第 2 字改 O、學號與 email 全部改 O；"
            "「學生編號連結姓名」對照表只能留在自己電腦，不要上傳。")
     append("")
@@ -425,6 +638,10 @@ def main(argv=None):
         return run_selftest()
     if "--check-privacy" in argv:
         return run_check_privacy(argv)
+    if "--make-codebook-only" in argv:
+        return run_make_codebook(argv)
+    if "--run" in argv:
+        return run_cli_week(argv)
     if "--help" in argv or "-h" in argv:
         try:
             print(__doc__, flush=True)

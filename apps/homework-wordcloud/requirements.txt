@@ -1,6 +1,7 @@
 # 學生作業文字雲（HomeworkWordCloud）執行與打包所需套件
 # GUI 用 Python 內建的 tkinter，不需要額外安裝。
 openpyxl>=3.1
+pypdf>=4.0              # 讀東華教務系統的選課名單 PDF（純 Python，不用 PyMuPDF）
 python-pptx>=0.6.23
 wordcloud>=1.9
 jieba>=0.42

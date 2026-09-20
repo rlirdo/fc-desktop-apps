@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-parse_zuvio.py — 把作業匯出檔轉成每題一份「去識別化」CSV。（2.0）
+parse_zuvio.py — 把作業匯出檔轉成每題一份「去識別化」CSV。（2.1）
 
 支援三種輸入：
   (1) **NameMasker 2.0 的輸出 xlsx**（建議走這條）
@@ -8,8 +8,10 @@ parse_zuvio.py — 把作業匯出檔轉成每題一份「去識別化」CSV。�
       學號欄已經全部是 O，姓名已遮罩，自由文字裡的同學姓名已換成學生編號。
       檔案裡另有一張工作表「學生編號連結姓名」＝再識別鑰匙，
       **本程式一律忽略那張表，絕不讀入其中任何姓名。**
-  (2) 原始 Zuvio 老師端「下載數據」匯出 xlsx（向下相容）
-      這時由 core/mask.py 自行產生學生編號並完成遮罩。
+  (2) **原始 Zuvio 老師端「下載數據」匯出 xlsx**
+      這時由 core/mask.py 自行完成遮罩。2.1 起**一定要先有名單／對照表**
+      （core/roster.py 的 Codebook → mask.FixedCoder），學生編號才會整學期固定；
+      使用者明確選「沒有名單」時才退回 2.0 的 StudentCoder（依出現順序）。
   (3) 通用 CSV（欄位含「姓名」與「作答」即可）。
 
 另外兩種會混進資料夾、但**不是作業**的檔案，一律安全處理不崩潰：
@@ -20,7 +22,7 @@ parse_zuvio.py — 把作業匯出檔轉成每題一份「去識別化」CSV。�
     `學號|姓名|作答時間|總分|第1題|第2題…`，答案是「答對／答錯」這類短詞
     → 視為選擇題型（統計答對率／選項分佈），不做文字雲與概念矩陣。
 
-實測補充：原始 Zuvio 匯出的學號儲存格是 **int**（411354043），
+實測補充：原始 Zuvio 匯出的學號儲存格是 **int**（例 990000043），
 NameMasker 2.0 輸出後是字串 `'OOOOOOOOO'`；本模組一律先 `str()` 再處理。
 同一張 sheet 可能有多達 5 個表頭區塊（例：列 12／62／80／132／184），
 每個區塊都會各自歸到對應的子題。
@@ -354,12 +356,57 @@ def _clean_code(c):
     return c
 
 
-def parse_file(path, no, semester="", course=""):
-    """單一檔案 → (rows, rec)；rows 是已去識別化的 CSV 列，rec 是統計資訊。"""
+def file_has_codes(path):
+    """這個檔案是不是已經有 A 欄「學生編號」（＝NameMasker 的輸出）。"""
+    try:
+        if path.lower().endswith(".csv"):
+            g = parse_generic_csv(path)
+            return bool(g) and any(_clean_code(x.get("學生編號")) for x in g)
+        raw = read_grid(path)
+    except Exception:
+        return False
+    _codes, _grid, has = split_code_column(raw)
+    return has
+
+
+def scan_inputs(input_dir):
+    """回傳 (全部檔案, 需要名單才能處理的原始檔)。
+
+    已經有 A 欄「學生編號」的檔案（NameMasker 輸出）不需要名單；
+    名冊檔／對照表不是作業，也不算。
+    """
+    files = list_inputs(input_dir)
+    raw = []
+    for p in files:
+        if file_has_codes(p):
+            continue
+        if p.lower().endswith(".csv"):
+            raw.append(p)
+            continue
+        try:
+            grid = read_grid(p)
+        except Exception:
+            continue
+        if looks_like_roster_file(grid):
+            continue
+        raw.append(p)
+    return files, raw
+
+
+def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
+    """單一檔案 → (rows, rec)；rows 是已去識別化的 CSV 列，rec 是統計資訊。
+
+    coder       共用的編號器（2.1 建議傳 mask.FixedCoder，整批檔案共用一顆，
+                編號才會跨檔一致）；None 時退回 2.0 的 StudentCoder。
+    extra_names 名單內**所有**真實姓名（SPEC §1.4：即使這個檔沒出現也要換掉）。
+    """
     qno = f"Q{no:02d}"
     base = os.path.splitext(os.path.basename(path))[0]
     semester = normalize_semester(semester)
     course = normalize_course_code(course)
+    extra_names = list(extra_names or [])
+    if coder is not None and hasattr(coder, "set_source"):
+        coder.set_source(os.path.basename(path))
 
     # -------------------------------------------------- 通用 CSV
     if path.lower().endswith(".csv"):
@@ -367,11 +414,11 @@ def parse_file(path, no, semester="", course=""):
         if generic is None:
             return [], {"題號": qno, "來源檔": os.path.basename(path),
                         "狀態": "失敗", "原因": "CSV 缺少「姓名」或「作答」欄"}
-        coder = StudentCoder(semester, course)
+        coder = coder or StudentCoder(semester, course)
         for g in generic:
             if not _clean_code(g["學生編號"]):
                 g["學生編號"] = coder.code_for(g["學號"], g["姓名"])
-        roster = build_roster([g["姓名"] for g in generic])
+        roster = build_roster([g["姓名"] for g in generic], extra_names)
         rep = build_replacer(roster, coder.name_to_code())
         out_rows, n_masked = [], 0
         for g in generic:
@@ -386,7 +433,9 @@ def parse_file(path, no, semester="", course=""):
                "題目": base, "題型": "通用CSV", "作答人數": len(keys),
                "未作答人數": 0, "全班人數": len(keys),
                "子題數": len({r[1] for r in out_rows}), "有效作答列數": len(out_rows),
-               "取用區塊": "通用CSV", "學生編號來源": "程式產生",
+               "取用區塊": "通用CSV",
+               "學生編號來源": "固定對照表" if coder is not None and
+               hasattr(coder, "cb") else "程式產生（依出現順序，未用名單）",
                "姓名遮罩": "已套用(第2字改O)", "遮罩列數": n_masked,
                "子題": [{"label": s, "text": "", "作答數": sum(1 for r in out_rows if r[1] == s)}
                         for s in sorted({r[1] for r in out_rows})]}
@@ -416,8 +465,9 @@ def parse_file(path, no, semester="", course=""):
     # 作答時間只在彙總表有 -> 用學號回查
     tmap = {r[0]: (r[2] if len(r) > 2 else "") for r in p["rows"] if r and r[0]}
 
-    # ---- 學生編號：A 欄優先；沒有就自己編（向下相容原始 Zuvio 匯出）
-    coder = StudentCoder(semester, course)
+    # ---- 學生編號：A 欄優先；沒有就照對照表（或 2.0 的出現順序）編
+    fixed = coder is not None
+    coder = coder or StudentCoder(semester, course)
     if not has_codes:
         for r in p["rows"]:                       # 依首次出現順序
             coder.code_for(r[0], r[1] if len(r) > 1 else "")
@@ -436,8 +486,20 @@ def parse_file(path, no, semester="", course=""):
         [r[1] for r in p["rows"] if len(r) > 1],
         [u["姓名"] for u in p["unanswered"]],
         [x[1] for d in details for x in d["answers"]],
+        extra_names,
     )
     rep = build_replacer(roster, coder.name_to_code())
+
+    # ---- 題幹／子題題目也要遮罩：真實匯出檔的題幹會夾帶聯絡用的電子郵件
+    #      （例：知情同意書的研究者信箱），它會被原樣寫進 CSV、JSON 與簡報。
+    title = mask_in_text(title, rep)
+    for d in details:
+        d["text"] = mask_in_text(d["text"], rep)
+    for s in p["subs"]:
+        s["text"] = mask_in_text(s["text"], rep)
+    for k in ("資料夾名稱", "題幹", "問題敘述"):
+        if p["meta"].get(k):
+            p["meta"][k] = mask_in_text(p["meta"][k], rep)
 
     out_rows, n_masked = [], 0
     seen_codes = set()
@@ -504,7 +566,8 @@ def parse_file(path, no, semester="", course=""):
         "子題": subs_meta,
         "有效作答列數": len(out_rows),
         "取用區塊": source,
-        "學生編號來源": "A 欄（姓名遮罩與學生編號程式）" if has_codes else "程式產生（原始匯出檔）",
+        "學生編號來源": ("A 欄（姓名遮罩與學生編號程式）" if has_codes else
+                    ("固定對照表" if fixed else "程式產生（依出現順序，未用名單）")),
         "學生編號數": len({r[3] for r in out_rows if r[3]}),
         "姓名遮罩": "已套用(第2字改O)",
         "遮罩列數": n_masked,
@@ -512,13 +575,25 @@ def parse_file(path, no, semester="", course=""):
     return out_rows, rec
 
 
-def parse_dir(input_dir, out_dir, semester="", course="", log=print):
-    """把 input_dir 內所有檔案轉成 out_dir 內的 Q0N_*.csv，回傳 index 清單。"""
+def parse_dir(input_dir, out_dir, semester="", course="", log=print, codebook=None):
+    """把 input_dir 內所有檔案轉成 out_dir 內的 Q0N_*.csv，回傳 index 清單。
+
+    codebook 是 `core.roster.Codebook`（2.1 預設要有）：整批檔案共用同一顆
+    FixedCoder，學生編號跨題跨週固定；全班人數也直接用對照表的人數。
+    """
     os.makedirs(out_dir, exist_ok=True)
     files = list_inputs(input_dir)
     if not files:
         raise SystemExit(f"[錯誤] {input_dir} 裡找不到任何 .xlsx 或 .csv。\n"
                          f"       請先跑「姓名遮罩與學生編號」，把輸出的 xlsx 放進這個資料夾。")
+    coder = None
+    extra_names = []
+    if codebook is not None:
+        from .mask import FixedCoder
+        coder = FixedCoder(codebook)
+        extra_names = list(codebook.names())
+        log(f"  學生編號來自固定對照表：{codebook.count} 人"
+            f"（名單外 {len(codebook.outside)} 人，自 101 起）")
     index = []
     skipped = 0
     no = 0
@@ -526,7 +601,8 @@ def parse_dir(input_dir, out_dir, semester="", course="", log=print):
     roster_n = 0                 # 名冊檔的人數（若有名冊，以它為準）
     for path in files:
         no += 1
-        rows, rec = parse_file(path, no, semester=semester, course=course)
+        rows, rec = parse_file(path, no, semester=semester, course=course,
+                               coder=coder, extra_names=extra_names)
         union_codes |= set(rec.get("學生編號清單") or [])
         if rec.get("狀態") == "略過":
             no -= 1
@@ -553,8 +629,13 @@ def parse_dir(input_dir, out_dir, semester="", course="", log=print):
                          f"       請確認放進來的是 Zuvio「下載數據」或姓名遮罩程式的輸出。")
 
     # ---- 全班人數：整份輸入資料夾共用同一個分母，不要每題各算各的
-    klass = roster_n or len(union_codes)
-    src = "名冊檔" if roster_n else "本週所有輸入檔的不重複學生編號"
+    #      有對照表就以對照表「學生編號對照」的人數為準（優先於名冊檔與不重複編號數）
+    if codebook is not None and codebook.count:
+        klass = codebook.count
+        src = "學生編號對照表"
+    else:
+        klass = roster_n or len(union_codes)
+        src = "名冊檔" if roster_n else "本週所有輸入檔的不重複學生編號"
     for rec in index:
         rec["全班人數"] = klass or rec.get("全班人數", 0)
         rec["全班人數來源"] = src

@@ -1,3 +1,4 @@
 openpyxl>=3.1.0
+pypdf>=4.0.0        # 讀東華教務系統「選課名單」PDF（純 Python，不會讓 exe 暴增）
 pillow>=10.0.0      # 僅用於 make_icon.py 產生圖示，執行期不需要
 pyinstaller>=6.0    # 僅打包時需要

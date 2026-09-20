@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-core_mask.py — 姓名遮罩與學生編號（NameMasker 2.0 核心）
+core_mask.py — 姓名遮罩與學生編號（NameMasker 2.1 核心）
 ========================================================
+2.1：學生編號優先取自「原始名單 → 學生編號對照表」（roster.py 的 Codebook），
+同一位學生在任何檔案、任何週次都是同一個編號；不在名單的作答者（退選等）
+自 101 起編號並持久登記回對照表。沒有對照表時才退回 2.0 的「檔內出現順序」。
+
 把 Zuvio「下載數據」xlsx／名冊 xlsx／通用 CSV 轉成「可以安全拿去分析」的檔案：
 
   1. 找出整張工作表裡**所有**含「姓名」的表頭列（同一張表常有好幾個區塊：
@@ -39,7 +43,7 @@ try:
 except ImportError:  # pragma: no cover - 封裝後不會發生
     sys.exit("缺少 openpyxl，請先執行：pip install openpyxl")
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 # --------------------------------------------------------------------------
 # 常數與樣式
@@ -94,6 +98,12 @@ class Report:
     link_rows: int = 0
     notes: list = field(default_factory=list)
     student_numbers: list = field(default_factory=list)   # 只放編號字串，不含姓名
+    # --- 2.1：固定對照表模式 ---
+    roster_mode: bool = False        # 是否用「原始名單／對照表」的固定編號
+    in_roster: int = 0               # 本檔出現的「名單內」學生人數
+    out_roster: int = 0              # 本檔出現的「名單外作答者」人數（101 起）
+    codebook_path: str = ""          # 對照表位置
+    codebook_written: bool = False   # 本檔是否有新的名單外登記被回寫
 
     def summary_lines(self):
         """給 GUI／CLI 顯示的摘要（**不含任何姓名**）。"""
@@ -101,7 +111,11 @@ class Report:
             f"找到 {self.blocks} 個資料區塊（工作表「{self.sheet_title}」）",
             f"編號學生 {self.students} 位　（{self.semester}_{self.course_code}_1 … "
             f"{self.semester}_{self.course_code}_{self.students}）" if self.students else
-            "編號學生 0 位",
+            "編號學生 0 位",]
+        if self.roster_mode:
+            L[1] = (f"編號學生 {self.students} 位：名單內 {self.in_roster} 人、"
+                    f"名單外作答者 {self.out_roster} 人（101 起）")
+        L += [
             f"匿名／未具名列 {self.anon_rows} 列（不編號）",
             f"遮罩學號 {self.id_masked} 筆、電子郵件 {self.email_masked} 筆（每字元改 O，長度不變）",
             f"姓名欄遮罩 {self.name_masked} 筆" + ("" if self.mask_names else "（本次未勾選姓名遮罩）"),
@@ -109,6 +123,9 @@ class Report:
             f"對照表「{LINK_SHEET_TITLE}」{self.link_rows} 筆",
             f"輸出檔：{self.dst}",
         ]
+        if self.roster_mode and self.codebook_path:
+            L.append("學生編號對照表：" + self.codebook_path
+                     + ("（已回寫名單外作答者）" if self.codebook_written else ""))
         for n in self.notes:
             L.append("※ " + n)
         return L
@@ -144,7 +161,7 @@ def is_formula(v):
 
 
 def normalize_id(v):
-    """學號正規化：int 411354043 → '411354043'；float 411354043.0 → '411354043'。"""
+    """學號正規化：int 990054043 → '990054043'；float 990054043.0 → '990054043'。"""
     if v is None:
         return ""
     if isinstance(v, bool):
@@ -369,8 +386,18 @@ def process_sheet(ws, course, sem, do_mask_names, rep):
             continue
         key = alias.get(name) or (sid if STUDENT_ID_RE.match(sid) else name)
         if key not in numbers:
-            if _FIXED is not None:
-                # 固定對照表模式：名單內學生用官方編號；不在名單者（已退選等）從 101 起編，避免混淆
+            if _CODEBOOK is not None:
+                # 2.1 固定對照表模式：名單內用對照表編號；名單外作答者（退選等）
+                # 由對照表「名單外作答者」工作表持久登記，101 起，跨檔跨週一致。
+                no = (_CODEBOOK.roster_code_for(sid, name)
+                      or _CODEBOOK.roster_code_for(key, name))
+                if no:
+                    rep.in_roster += 1
+                else:
+                    no = _CODEBOOK.register_outsider(sid or key, name, _SRC_NAME)
+                    rep.out_roster += 1
+            elif _FIXED is not None:
+                # 舊版相容：只給 fixed_codes 字典時，名單外從 101 起（單次呼叫內計數）
                 no = _FIXED.get(key) or _FIXED.get(sid) or _FIXED.get(name)
                 if not no:
                     extra = sum(1 for v in numbers.values() if v not in _FIXED_VALUES)
@@ -529,9 +556,11 @@ def workbook_from_csv(path):
 # --------------------------------------------------------------------------
 # 對外主函式
 # --------------------------------------------------------------------------
-_FIXED = None            # {學號: 學生編號}（固定對照表模式）
+_FIXED = None            # {學號: 學生編號}（舊版相容：固定對照表字典）
 _FIXED_VALUES = set()
 _FIXED_NAMES = None      # {姓名: 學生編號}
+_CODEBOOK = None         # roster.Codebook（2.1 固定對照表模式，可持久登記名單外作答者）
+_SRC_NAME = ""           # 目前處理中的檔名（登記名單外作答者的「首次出現檔案」）
 
 
 def load_fixed_codes(xlsx_path, sheet=None):
@@ -550,23 +579,38 @@ def load_fixed_codes(xlsx_path, sheet=None):
     return by_id, by_name
 
 
-def process_workbook(src, course_code, semester, mask_names=True, fixed_codes=None, fixed_names=None):
-    global _FIXED, _FIXED_VALUES, _FIXED_NAMES
-    _FIXED = dict(fixed_codes) if fixed_codes else None
-    _FIXED_VALUES = set(_FIXED.values()) if _FIXED else set()
-    _FIXED_NAMES = dict(fixed_names) if fixed_names else None
-    """處理單一檔案，回傳 Report。失敗丟 MaskError（訊息可直接顯示給使用者）。"""
+def process_workbook(src, course_code, semester, mask_names=True, fixed_codes=None,
+                     fixed_names=None, codebook=None):
+    """處理單一檔案，回傳 Report。失敗丟 MaskError（訊息可直接顯示給使用者）。
+
+    codebook：`roster.Codebook`（2.1）。給了就用固定學生編號，名單外作答者
+              自動登記到對照表「名單外作答者」工作表（101 起，跨檔一致）。
+    fixed_codes / fixed_names：舊版相容的字典介面。
+    """
+    global _FIXED, _FIXED_VALUES, _FIXED_NAMES, _CODEBOOK, _SRC_NAME
+    _CODEBOOK = codebook
+    if codebook is not None:
+        _FIXED = None
+        _FIXED_VALUES = set()
+        _FIXED_NAMES = dict(codebook.roster_names())
+    else:
+        _FIXED = dict(fixed_codes) if fixed_codes else None
+        _FIXED_VALUES = set(_FIXED.values()) if _FIXED else set()
+        _FIXED_NAMES = dict(fixed_names) if fixed_names else None
     course = validate_course(course_code)
     sem = validate_semester(semester)
 
     src = os.path.abspath(src)
+    _SRC_NAME = os.path.basename(src)
     if not os.path.isfile(src):
         raise MaskError(f"找不到檔案：{src}")
     low = src.lower()
     if not low.endswith(SUPPORTED_EXT):
         raise MaskError("只支援 .xlsx / .xlsm / .csv（舊版 .xls 請先用 Excel 另存為 .xlsx）")
 
-    rep = Report(src=src, course_code=course, semester=sem, mask_names=bool(mask_names))
+    rep = Report(src=src, course_code=course, semester=sem, mask_names=bool(mask_names),
+                 roster_mode=codebook is not None,
+                 codebook_path=getattr(codebook, "path", "") if codebook else "")
 
     if low.endswith(".csv"):
         wb = workbook_from_csv(src)
@@ -608,6 +652,13 @@ def process_workbook(src, course_code, semester, mask_names=True, fixed_codes=No
         except Exception:
             pass
     rep.dst = dst
+
+    # 名單外作答者的新登記 → 立刻回寫對照表（跨檔跨週一致）
+    if codebook is not None:
+        try:
+            rep.codebook_written = bool(codebook.save())
+        except Exception as e:  # noqa: BLE001
+            rep.notes.append(f"對照表回寫失敗（請確認沒有被 Excel 開著）：{e}")
     return rep
 
 
