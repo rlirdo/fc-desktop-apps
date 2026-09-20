@@ -243,7 +243,7 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
     import sample_data as SD
 
     out(f"{EXE_NAME} {VERSION} — 自我測試開始（全部使用合成資料，零真實個資）")
-    tmp = tempfile.mkdtemp(prefix="NameMasker_selftest_")
+    tmp = tempfile.mkdtemp(prefix="NameMasker_selftest_[課程] ")   # 刻意含中括號與空白：回歸測試路徑處理
     SEM, CRS = "115-1", "EC"
     NO = {n: f"{SEM}_{CRS}_{n}" for n in range(1, 20)}
     try:

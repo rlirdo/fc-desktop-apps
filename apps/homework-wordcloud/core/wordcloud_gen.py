@@ -136,7 +136,7 @@ def generate_all(work_dir, out_dir=None, min_words=5, log=print):
     out_dir = out_dir or os.path.join(work_dir, "wc")
     os.makedirs(out_dir, exist_ok=True)
     made = {}
-    paths = [p for p in sorted(glob.glob(os.path.join(work_dir, "Q*.csv")))
+    paths = [p for p in sorted(glob.glob(os.path.join(glob.escape(work_dir), "Q*.csv")))
              if not os.path.basename(p).endswith(("_concept_matrix.csv", "_questions.csv"))]
     for csv_path in paths:
         qno = os.path.basename(csv_path)[:3]

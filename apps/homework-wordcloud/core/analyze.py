@@ -430,7 +430,7 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=3, log=print):
     all_freq = Counter()
     all_questions = []
 
-    paths = [p for p in sorted(glob.glob(os.path.join(work_dir, "Q*.csv")))
+    paths = [p for p in sorted(glob.glob(os.path.join(glob.escape(work_dir), "Q*.csv")))
              if not os.path.basename(p).endswith(("_concept_matrix.csv", "_questions.csv"))]
 
     for path in paths:

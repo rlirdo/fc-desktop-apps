@@ -342,9 +342,9 @@ def parse_generic_csv(path):
 # ------------------------------------------------------------------ 主流程
 def list_inputs(input_dir):
     """回傳要處理的檔案清單（xlsx 優先，其次 csv），依檔名排序。"""
-    files = sorted(glob.glob(os.path.join(input_dir, "*.xlsx")))
+    files = sorted(glob.glob(os.path.join(glob.escape(input_dir), "*.xlsx")))
     files = [f for f in files if not os.path.basename(f).startswith("~$")]
-    files += sorted(glob.glob(os.path.join(input_dir, "*.csv")))
+    files += sorted(glob.glob(os.path.join(glob.escape(input_dir), "*.csv")))
     return files
 
 

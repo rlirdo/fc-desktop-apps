@@ -1003,7 +1003,7 @@ def selftest(log=print, keep=False):
          未給名單被擋、--no-roster 放行、隱私（含對照表真名學號）0 命中
     """
     from pptx import Presentation
-    tmp = tempfile.mkdtemp(prefix="hwwc_selftest_")
+    tmp = tempfile.mkdtemp(prefix="hwwc_selftest_[課程] ")   # 刻意含中括號與空白：回歸測試 glob 跳脫
     try:
         log(f"暫存資料夾：{tmp}")
         cfg = load_config()
