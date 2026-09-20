@@ -37,7 +37,7 @@ NAMES = ["王小明", "李小華", "陳大文", "林小美", "張志豪", "黃�
          "周柏勳", "何欣怡", "呂子翔", "高語彤", "宋育德", "馮心妍"]
 ANSWERED = NAMES[:20]          # 20 人作答
 MISSING = NAMES[20:]           # 2 人未作答
-SIDS = {n: f"4111{random.randint(10000, 99999)}" for n in NAMES}
+SIDS = {n: f"9900{random.randint(10000, 99999)}" for n in NAMES}   # 9900 號段：不可能是真實學號（CI 個資防線會擋 41/61/81 開頭）
 CODES = {n: f"{SEMESTER}_{COURSE}_{i}" for i, n in enumerate(NAMES, 1)}
 
 BASE_T = dt.datetime(2026, 9, 8, 19, 0)
