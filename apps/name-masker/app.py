@@ -1040,7 +1040,7 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
     # ================= ③ 執行與摘要 =======================================
     bar = tk.Frame(root)
     bar.pack(fill="x", padx=14, pady=(2, 6))
-    tk.Button(bar, text="選擇 Zuvio 檔（可多選）", font=FB, width=20,
+    tk.Button(bar, text="選擇要處理的檔案（可多選）", font=FB, width=22,
               command=lambda: add_files()).pack(side="left")
     tk.Button(bar, text="清除清單", font=F, width=9,
               command=lambda: clear_files()).pack(side="left", padx=6)
