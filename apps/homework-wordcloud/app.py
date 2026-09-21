@@ -361,7 +361,7 @@ def run_gui():
                          "（不建議：同一學生在不同檔案編號會不同）"
                     ).grid(row=3, column=0, columnspan=3, sticky="w", padx=6, pady=(4, 0))
     ttk.Label(rost, foreground="#64748B",
-              text="支援 Excel／CSV（要有「學號」「姓名」欄）與東華教務系統的選課名單 PDF。"
+              text="支援 Excel／CSV／Word（要有「學號」「姓名」欄）與東華教務系統的選課名單 PDF。"
                    "　⚠ 對照表含真實姓名與學號，只留本機、不要上傳。"
               ).grid(row=4, column=0, columnspan=3, sticky="w", padx=6)
 
