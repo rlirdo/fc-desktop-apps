@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec — 姓名遮罩與學生編號 NameMasker 2.1
+"""PyInstaller spec — 姓名遮罩與學生編號 NameMasker 2.2
 
 打包：
     pyinstaller build.spec
@@ -13,6 +13,8 @@ NameMasker_selftest.log，並以回傳碼（0/1）表示成功與否；
 """
 import os
 import sys
+
+from PyInstaller.utils.hooks import collect_data_files
 
 HERE = os.path.abspath(os.getcwd())
 IS_MAC = sys.platform == "darwin"
@@ -33,17 +35,27 @@ for f in ("icon.ico", "icon.png"):
         datas.append((p, "."))
 for f in ("樣本_Zuvio合成資料.xlsx", "樣本_名冊合成資料.xlsx", "樣本_通用格式.csv",
           "樣本_原始名單_含序號.xlsx", "樣本_原始名單_無序號.xlsx", "樣本_原始名單.csv",
-          "樣本_選課名單_合成.pdf"):
+          "樣本_選課名單_合成.pdf", "樣本_選課名單_合成_黏連格式.pdf"):
     sample = os.path.join(HERE, "selftest", f)
     if os.path.exists(sample):
         datas.append((sample, "selftest"))
+
+# python-docx（2.2）：templates/ 內的 default.docx、default-header.xml… 要一起帶走
+datas += collect_data_files("docx")
+# 關鍵（macOS）：python-docx 用 docx/parts/../templates/x.xml 讀範本；純 Python 模組在 PYZ 內，
+# 磁碟上沒有 docx/parts/ 目錄，POSIX 逐層解析 ".." 會 ENOENT（Windows 會先字串正規化所以沒事）。
+# 放一個佔位檔讓 docx/parts/ 真實存在（只有 parts/ 用到 ".."，opc/oxml 沒有）。
+_keep = os.path.join(HERE, "docx_parts.keep")
+if os.path.exists(_keep):
+    datas.append((_keep, os.path.join("docx", "parts")))
 
 a = Analysis(
     ["app.py"],
     pathex=[HERE],
     binaries=[],
     datas=datas,
-    hiddenimports=["openpyxl", "sample_data", "core_mask", "roster", "pypdf"],
+    hiddenimports=["openpyxl", "sample_data", "core_mask", "roster", "doc_mask",
+                   "pypdf", "docx", "lxml", "lxml.etree", "lxml._elementpath"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -89,7 +101,7 @@ if IS_MAC:
         info_plist={
             "CFBundleName": "NameMasker",
             "CFBundleDisplayName": "姓名遮罩與學生編號",
-            "CFBundleShortVersionString": "2.1.0",
+            "CFBundleShortVersionString": "2.2.0",
             "NSHighResolutionCapable": True,
         },
     )

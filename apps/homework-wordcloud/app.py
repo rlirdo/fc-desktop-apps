@@ -15,7 +15,7 @@ app.py — 學生作業文字雲（HomeworkWordCloud）桌面版入口
     HomeworkWordCloud.exe --selftest                          無視窗自我測試
                                                               （成功印 SELFTEST OK、回傳碼 0）
     HomeworkWordCloud.exe --run --input <資料夾> --output <資料夾>
-            [--week N] [--roster 名單.(xlsx|csv|pdf) | --codebook 對照表.xlsx]
+            [--week N] [--roster 名單.(xlsx|csv|pdf|docx) | --codebook 對照表.xlsx]
             [--no-roster] [--overwrite-codebook]
             [--course EC] [--semester 115-1] [--course-name 環境化學] [--thumbs]
     HomeworkWordCloud.exe --make-codebook-only --roster 名單.pdf
@@ -170,12 +170,12 @@ def run_check_privacy(argv):
 
 
 def run_make_codebook(argv):
-    """--make-codebook-only --roster 名單.(xlsx|csv|pdf)：只產生／更新對照表。"""
+    """--make-codebook-only --roster 名單.(xlsx|csv|pdf|docx)：只產生／更新對照表。"""
     log = _cli_log()
     src = _opt(argv, "--roster") or _opt(argv, "--codebook")
     if not src:
         log("用法：HomeworkWordCloud.exe --make-codebook-only "
-            "--roster 名單.(xlsx|csv|pdf) [--course EC] [--semester 115-1] "
+            "--roster 名單.(xlsx|csv|pdf|docx) [--course EC] [--semester 115-1] "
             "[--overwrite-codebook]")
         return 2
     try:
@@ -199,7 +199,7 @@ def run_cli_week(argv):
     if not in_dir:
         log("用法：HomeworkWordCloud.exe --run --input <輸入資料夾> "
             "[--output <輸出資料夾>] [--week N] "
-            "[--roster 名單.(xlsx|csv|pdf) | --codebook 對照表.xlsx] [--no-roster]")
+            "[--roster 名單.(xlsx|csv|pdf|docx) | --codebook 對照表.xlsx] [--no-roster]")
         return 2
     try:
         cfg = _cfg_from_argv(argv)
@@ -339,9 +339,10 @@ def run_gui():
         p = filedialog.askopenfilename(
             title="選擇原始名單或學生編號對照表",
             initialdir=os.path.dirname(v_cb.get()) or os.path.expanduser("~"),
-            filetypes=[("名單／對照表", "*.xlsx *.xlsm *.csv *.pdf"),
+            filetypes=[("名單／對照表", "*.xlsx *.xlsm *.csv *.pdf *.docx"),
                        ("Excel", "*.xlsx *.xlsm"), ("CSV", "*.csv"),
-                       ("選課名單 PDF", "*.pdf"), ("所有檔案", "*.*")])
+                       ("選課名單 PDF", "*.pdf"), ("Word 名單", "*.docx"),
+                       ("所有檔案", "*.*")])
         if p:
             v_cb.set(os.path.normpath(p))
             cbstate["cb"] = None
@@ -509,7 +510,7 @@ def run_gui():
         if not v_cb.get().strip():
             messagebox.showwarning(P.APP_TITLE,
                                    "請先在「名單／對照表檔」選一份檔案"
-                                   "（Excel／CSV／選課名單 PDF）。")
+                                   "（Excel／CSV／Word／選課名單 PDF）。")
             return
 
         def job(log):
@@ -609,7 +610,7 @@ def run_gui():
     append("兩步流程：① 先用「姓名遮罩與學生編號」處理 Zuvio 匯出的 xlsx，"
            "② 把它的輸出放進「輸入資料夾」再按「跑本週」。")
     append("2.1 新增：直接丟**原始 Zuvio 匯出檔**也可以，但要先在"
-           "「原始名單或學生編號對照表」選一份名單（Excel／CSV／選課名單 PDF），"
+           "「原始名單或學生編號對照表」選一份名單（Excel／CSV／Word／選課名單 PDF），"
            "學生編號才會整學期固定。")
     append("2.2 新增：每題分析從「3 個重點、2 類提問」加深成「六個重點、四類提問」"
            "（計算數據／操作應用／延伸探究／概念理解），題頁與附錄版面一併改版。")

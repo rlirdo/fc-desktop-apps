@@ -3,6 +3,7 @@
 openpyxl>=3.1
 pypdf>=4.0              # 讀東華教務系統的選課名單 PDF（純 Python，不用 PyMuPDF）
 python-pptx>=0.6.23
+python-docx>=1.1.0       # 2.2.1：讀 Word 名單（與 NameMasker 共用 roster.py）
 wordcloud>=1.9
 jieba>=0.42
 pillow>=10.0

@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-姓名遮罩與學生編號 NameMasker 2.1 — GUI／CLI 入口
+姓名遮罩與學生編號 NameMasker 2.2 — GUI／CLI 入口
 ====================================================
 2.1 的做法：**先載入原始名單 → 產生固定學生編號對照表 → 再做姓名遮罩**。
 同一位學生在不同檔案、不同週次都會拿到同一個學生編號（2.0 是依檔案內出現
 順序編號，同一人在不同檔案會編到不同號，已知是缺陷）。
+2.2 再加上：**名單可以是 Word（.docx）**，**要遮罩的目標檔也可以是 Word 與 PDF**。
 
 流程：
-  ① 原始名單：Excel／CSV（要有「學號」「姓名」欄）或東華教務系統「選課名單」PDF
+  ① 原始名單：Excel／CSV／Word（要有「學號」「姓名」欄）或東華教務系統「選課名單」PDF
      → 產生 `{學期}_{課程縮寫}_學生名單與學生編號對照表.xlsx`
-  ② 要處理的 Zuvio 檔（可多選）＋ 學期、課程縮寫
-  ③ 執行：A 欄插入「學生編號」、學號與電子郵件改成 OOOO、姓名第 2 字改 O、
-     自由文字裡的同學姓名改成學生編號，另存「原檔名02.xlsx」（原檔不動）。
+  ② 要處理的檔案（可多選）：.xlsx / .xlsm / .csv / .docx / .pdf ＋ 學期、課程縮寫
+  ③ 執行：
+     * Excel／CSV → A 欄插入「學生編號」、學號與電子郵件改成 OOOO、姓名第 2 字改 O、
+       自由文字裡的同學姓名改成學生編號，另存「原檔名02.xlsx」（原檔不動）。
+     * Word（.docx）→ 本文、表格（含巢狀）、頁首頁尾一起遮罩，另存「原檔名02.docx」。
+     * PDF → 抽出文字逐行遮罩，另存「原檔名02.docx」（文字版，不保留原版面）。
      不在名單的作答者（退選等）自 101 號起編，並**持久登記**回對照表。
 
 用法：
@@ -36,7 +40,7 @@ import traceback
 
 APP_NAME = "姓名遮罩與學生編號"
 EXE_NAME = "NameMasker"
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 DEFAULT_COURSE = "EC"
 DEFAULT_SEMESTER = "115-1"
@@ -56,7 +60,35 @@ from core_mask import (  # noqa: E402
     LINK_SHEET_HEADERS, LINK_SHEET_TITLE, MaskError, SUPPORTED_EXT,
     process_workbook, validate_course, validate_semester,
 )
+import doc_mask as D  # noqa: E402
 import roster as R  # noqa: E402
+
+# 2.2：Excel／CSV 之外，也接受 Word 與 PDF 目標檔
+TARGET_EXT = tuple(SUPPORTED_EXT) + tuple(D.TARGET_EXT)
+TARGET_PATTERN = "*.xlsx *.xlsm *.csv *.docx *.pdf"
+ROSTER_PATTERN = "*.xlsx *.xlsm *.csv *.pdf *.docx"
+
+
+def process_any(path, course, sem, mask_names=True, codebook=None):
+    """依副檔名分派：Excel／CSV → core_mask；Word／PDF → doc_mask。"""
+    if (path or "").lower().endswith(D.TARGET_EXT):
+        return D.process_document(path, course, sem, mask_names=mask_names,
+                                  codebook=codebook)
+    return process_workbook(path, course, sem, mask_names, codebook=codebook)
+
+
+def _short_line(rep):
+    """給結果視窗用的一行摘要（Excel 與 Word／PDF 兩種報告都吃得下）。"""
+    if isinstance(rep, D.DocReport):
+        kind = "PDF→Word" if rep.kind == "pdf" else "Word"
+        return (f"    {kind}：姓名 {rep.name_masked} 處改成學生編號、"
+                f"學號 {rep.id_masked} 處、電子郵件 {rep.email_masked} 處"
+                + ("" if rep.ok else "　⚠ 有殘留，請人工複查"))
+    if rep.roster_mode:
+        return (f"    名單內 {rep.in_roster} 人、名單外作答者 {rep.out_roster} 人"
+                f"、遮罩學號 {rep.id_masked} 筆、文字替換 {rep.text_replacements} 處")
+    return (f"    區塊 {rep.blocks} 個、編號學生 {rep.students} 位、"
+            f"遮罩學號 {rep.id_masked} 筆、文字替換 {rep.text_replacements} 處")
 
 _LOG_LINES = []
 SETTINGS_DIR = os.path.join(os.path.expanduser("~"), ".namemasker")
@@ -247,7 +279,7 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
     SEM, CRS = "115-1", "EC"
     NO = {n: f"{SEM}_{CRS}_{n}" for n in range(1, 20)}
     try:
-        # ================= [1/12] 參數驗證 =================================
+        # ================= [1/15] 參數驗證 =================================
         for bad in ("E", "ECC", "E1", "", "電化"):
             try:
                 validate_course(bad)
@@ -262,15 +294,15 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
             except MaskError:
                 pass
         assert validate_semester(" 115-1 ") == "115-1"
-        out("[1/12] 課程縮寫／學期格式驗證通過")
+        out("[1/15] 課程縮寫／學期格式驗證通過")
 
-        # ================= [2/12] 產生 Zuvio 合成檔 ========================
+        # ================= [2/15] 產生 Zuvio 合成檔 ========================
         src = os.path.join(tmp, "合成Zuvio.xlsx")
         SD.write_zuvio_sample(src)
         before = hashlib.sha256(open(src, "rb").read()).hexdigest()
-        out(f"[2/12] 已產生 Zuvio 格式合成檔（{len(SD.ZUVIO_ROWS)} 列、5 個表頭區塊）")
+        out(f"[2/15] 已產生 Zuvio 格式合成檔（{len(SD.ZUVIO_ROWS)} 列、5 個表頭區塊）")
 
-        # ================= [3/12] 執行主流程（無名單＝2.0 行為） ===========
+        # ================= [3/15] 執行主流程（無名單＝2.0 行為） ===========
         rep = process_workbook(src, CRS, SEM, mask_names=True)
         E = SD.ZUVIO_EXPECT
         for k, want in E.items():
@@ -279,7 +311,7 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
         assert os.path.basename(rep.dst) == "合成Zuvio02.xlsx", \
             f"輸出檔名應為 合成Zuvio02.xlsx，實際 {os.path.basename(rep.dst)}"
         assert os.path.dirname(rep.dst) == tmp, "輸出應與原檔同資料夾"
-        out(f"[3/12] 主流程統計全部符合：區塊 {rep.blocks}、學生 {rep.students}、"
+        out(f"[3/15] 主流程統計全部符合：區塊 {rep.blocks}、學生 {rep.students}、"
             f"學號遮罩 {rep.id_masked}、姓名遮罩 {rep.name_masked}、"
             f"文字替換 {rep.text_replacements}、對照表 {rep.link_rows}")
 
@@ -287,7 +319,7 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
         after = hashlib.sha256(open(src, "rb").read()).hexdigest()
         assert before == after, "原檔被更動了（不允許）"
 
-        # ================= [4/12] 讀回輸出檔逐項驗證 =======================
+        # ================= [4/15] 讀回輸出檔逐項驗證 =======================
         wb = openpyxl.load_workbook(rep.dst)
         ws = wb[SD.ZUVIO_SHEET]
 
@@ -365,10 +397,10 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
             assert ls.cell(i, 5).value == first_row, \
                 f"連結表第 {i} 列首次出現列應為 {first_row}，實際 {ls.cell(i, 5).value}"
         wb.close()
-        out("[4/12] 輸出檔逐項驗證通過（A 欄編號、跨區塊同號、匿名不編號、"
+        out("[4/15] 輸出檔逐項驗證通過（A 欄編號、跨區塊同號、匿名不編號、"
             "學號全 O、姓名遮罩、文字替換、無姓名殘留、連結表）")
 
-        # ================= [5/12] 02 → 03 遞增、--no-mask-names ============
+        # ================= [5/15] 02 → 03 遞增、--no-mask-names ============
         rep2 = process_workbook(src, CRS, SEM, mask_names=True)
         assert os.path.basename(rep2.dst) == "合成Zuvio03.xlsx", \
             f"第二次輸出應為 合成Zuvio03.xlsx，實際 {os.path.basename(rep2.dst)}"
@@ -384,9 +416,9 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
         ws3 = wb3[SD.ZUVIO_SHEET]
         assert ws3.cell(14, 3).value == "王小明", "取消勾選時姓名欄應維持原樣"
         wb3.close()
-        out("[5/12] 輸出編號遞增（02→03）與「不遮姓名欄」選項驗證通過")
+        out("[5/15] 輸出編號遞增（02→03）與「不遮姓名欄」選項驗證通過")
 
-        # ================= [6/12] 名冊型（含電子郵件欄、None 表頭） ========
+        # ================= [6/15] 名冊型（含電子郵件欄、None 表頭） ========
         rsrc = os.path.join(tmp, "合成名冊.xlsx")
         SD.write_roster_sample(rsrc)
         rrep = process_workbook(rsrc, CRS, SEM, mask_names=True)
@@ -402,10 +434,10 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
                 f"名冊第 {i} 列電子郵件應為 {len(row[3])} 個 O"
             assert wsr.cell(i, 6).value == row[4], "非郵件的 15 字說明欄不可被動到"
         wbr.close()
-        out("[6/12] 名冊型（第 1 列表頭、None 表頭、電子郵件欄）驗證通過："
+        out("[6/15] 名冊型（第 1 列表頭、None 表頭、電子郵件欄）驗證通過："
             f"郵件遮罩 {rrep.email_masked} 筆，長度不變")
 
-        # ================= [7/12] 通用 CSV =================================
+        # ================= [7/15] 通用 CSV =================================
         csrc = os.path.join(tmp, "合成通用.csv")
         SD.write_csv_sample(csrc)
         crep = process_workbook(csrc, CRS, SEM, mask_names=True)
@@ -415,9 +447,9 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
         assert crep.dst.endswith("02.xlsx"), "CSV 應輸出成 xlsx"
         assert crep.email_masked == 0 and any("電子郵件" in n for n in crep.notes), \
             "沒有電子郵件欄時應在說明中註記"
-        out(f"[7/12] 通用 CSV → xlsx 驗證通過（{crep.students} 位學生）")
+        out(f"[7/15] 通用 CSV → xlsx 驗證通過（{crep.students} 位學生）")
 
-        # ================= [8/12] 錯誤處理 =================================
+        # ================= [8/15] 錯誤處理 =================================
         bad = os.path.join(tmp, "沒有姓名欄.xlsx")
         wbb = openpyxl.Workbook()
         wbb.active.append(["座號", "分數"])
@@ -439,9 +471,9 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
             raise AssertionError("檔案不存在應丟出 MaskError")
         except MaskError:
             pass
-        out("[8/12] 錯誤處理（無姓名欄、課程縮寫格式、檔案不存在）驗證通過")
+        out("[8/15] 錯誤處理（無姓名欄、課程縮寫格式、檔案不存在）驗證通過")
 
-        # ================= [9/12] 原始名單 → 固定編號 ======================
+        # ================= [9/15] 原始名單 → 固定編號 ======================
         WANT = {sid: f"{SEM}_{CRS}_{seq}" for seq, sid, _n, _k in SD.CLASS_STUDENTS}
 
         # (a) 含序號的 Excel 名單 → 依序號
@@ -511,10 +543,10 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
             raise AssertionError("重複學號應丟出 RosterError")
         except R.RosterError as e:
             assert "重複" in str(e)
-        out("[9/12] 原始名單解析與編號通過（含序號→依序號、無序號→依學號排序、CSV、"
+        out("[9/15] 原始名單解析與編號通過（含序號→依序號、無序號→依學號排序、CSV、"
             "沿用既有對照表、載入對照表、重複學號報錯）")
 
-        # ================= [10/12] 東華「選課名單」PDF =====================
+        # ================= [10/15] 東華「選課名單」PDF =====================
         recs = R.parse_pdf_records(SD.PDF_LINES_ONELINE)
         got = [(r.seq, r.sid, r.name, r.klass) for r in recs]
         assert got == SD.PDF_EXPECT, f"PDF（同一行版面）解析不符：{len(got)} 筆"
@@ -522,6 +554,34 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
         got2 = [(r.seq, r.sid, r.name, r.klass) for r in recs2]
         assert got2 == SD.PDF_EXPECT, f"PDF（分行版面）解析不符：{len(got2)} 筆"
         assert R.parse_pdf_records(["這裡沒有任何學生"]) == [], "雜訊行不可解析出學生"
+
+        # (a) 2.2：黏連格式（姓名／學號／序號中間不留空白）的每一種列形狀
+        recsg = R.parse_pdf_records(SD.PDF_LINES_GLUED)
+        gotg = [(r.seq, r.sid, r.name, r.klass) for r in recsg]
+        assert len(gotg) == len(SD.PDF_GLUED_EXPECT), \
+            f"黏連格式應讀到 {len(SD.PDF_GLUED_EXPECT)} 人，實際 {len(gotg)}"
+        for g, w in zip(gotg, SD.PDF_GLUED_EXPECT):
+            assert g == w, f"黏連格式解析不符：{g} ≠ {w}"
+        assert [r.seq for r in recsg] == list(range(1, 13)), "黏連格式的序號應為 1..12"
+
+        # (b) 讀不到姓名的那一列仍要保留，並產生提醒
+        dg = R.records_to_data(recsg, "黏連.pdf")
+        assert any(not r.name for r in dg.records), "讀不到姓名的學生不可被丟掉"
+        assert any("讀不到姓名" in n for n in dg.notes), "讀不到姓名要有提醒"
+        stu_g = R.assign_codes(dg, SEM, CRS)
+        cbg = R.Codebook("", SEM, CRS, stu_g, rule=dg.rule)
+        assert cbg.rule == "依序號" and len(cbg.students) == 12
+        assert cbg.roster_code_for("990001006") == f"{SEM}_{CRS}_6", \
+            "沒有姓名的學生仍要能用學號查到編號"
+        assert "" not in cbg.roster_names(), "空姓名不可進入文字替換表（會毀掉全文）"
+
+        # (c) 序號缺號 → 不再拒絕，只提醒
+        dgap = R.records_to_data(R.parse_pdf_records(SD.PDF_LINES_GAP), "缺號.pdf")
+        assert any("序號缺" in n for n in dgap.notes), f"缺號要有提醒：{dgap.notes}"
+        gap_students = R.assign_codes(dgap, SEM, CRS)
+        assert dgap.rule == "依序號", "缺號仍應依序號編號"
+        assert {s.seq for s in gap_students} == {1, 3, 5, 6, 7}, \
+            f"缺號時序號應原樣保留：{[s.seq for s in gap_students]}"
 
         pdf_sample = resource_path(os.path.join("selftest", SD.PDF_SAMPLE_NAME))
         if os.path.isfile(pdf_sample):
@@ -533,25 +593,41 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
             cb5, _ = R.build_codebook(roster_path=p5, semester=SEM, course=CRS)
             assert cb5.rule == "依序號" and cb5.roster_ids() == WANT, \
                 "合成 PDF 端對端解析的編號不正確"
-            out(f"[10/12] PDF 名單解析通過（同一行／分行兩種版面 + 合成 PDF 端對端 "
-                f"{len(cb5.students)} 人）")
+            end2end = f"，合成 PDF 端對端 {len(cb5.students)} 人"
         else:
-            out("[10/12] PDF 名單解析通過（同一行／分行兩種版面；"
-                f"找不到 {SD.PDF_SAMPLE_NAME}，略過端對端測試）")
+            end2end = f"（找不到 {SD.PDF_SAMPLE_NAME}，略過端對端測試）"
 
-        # 序號不連續 → 白話錯誤
-        try:
-            R.records_to_data(R.parse_pdf_records(SD.PDF_LINES_BAD), "壞名單.pdf")
-            raise AssertionError("序號不連續的 PDF 應丟出 RosterError")
-        except R.RosterError as e:
-            assert "請改用 Excel 名單" in str(e), f"錯誤訊息要白話：{e}"
+        glued_pdf = resource_path(os.path.join("selftest", SD.PDF_GLUED_SAMPLE_NAME))
+        if os.path.isfile(glued_pdf):
+            d5b = os.path.join(tmp, "名單_pdf_黏連")
+            os.makedirs(d5b, exist_ok=True)
+            import shutil as _sh2
+            p5b = os.path.join(d5b, SD.PDF_GLUED_SAMPLE_NAME)
+            _sh2.copyfile(glued_pdf, p5b)
+            cb5b, m5b = R.build_codebook(roster_path=p5b, semester=SEM, course=CRS)
+            assert len(cb5b.students) == len(SD.GLUED_STUDENTS), \
+                f"黏連格式 PDF 應讀到 {len(SD.GLUED_STUDENTS)} 人，實際 {len(cb5b.students)}"
+            for seq, sid, name, _k in SD.GLUED_STUDENTS:
+                assert cb5b.roster_code_for(sid) == f"{SEM}_{CRS}_{seq}", \
+                    f"黏連格式 PDF 的編號不正確（序號 {seq}）"
+            assert any("讀不到姓名" in x for x in m5b), "讀不到姓名要提醒使用者"
+            end2end += f"、黏連格式 PDF 端對端 {len(cb5b.students)} 人（含 2 頁、缺姓名列）"
+        else:
+            end2end += f"（找不到 {SD.PDF_GLUED_SAMPLE_NAME}，略過黏連格式端對端）"
+        out("[10/15] PDF 名單解析通過（同一行／分行／黏連三種版面、12 種列形狀、"
+            "無姓名列保留、缺號不拒絕" + end2end + "）")
+
+        # 讀不到任何學生才丟錯（序號不連續已不再是錯誤）
+        dbad = R.records_to_data(R.parse_pdf_records(SD.PDF_LINES_BAD), "跳號.pdf")
+        assert len(dbad.records) == 3 and any("序號缺" in n for n in dbad.notes), \
+            f"序號跳號應改成提醒而不是錯誤：{dbad.notes}"
         try:
             R.records_to_data([], "空.pdf")
             raise AssertionError("讀不到學生的 PDF 應丟出 RosterError")
-        except R.RosterError:
-            pass
+        except R.RosterError as e:
+            assert "請改用 Excel 名單" in str(e), f"錯誤訊息要白話：{e}"
 
-        # ================= [11/12] 兩個順序不同的檔 → 同一學生同號 =========
+        # ================= [11/15] 兩個順序不同的檔 → 同一學生同號 =========
         wk = os.path.join(tmp, "兩週")
         os.makedirs(wk, exist_ok=True)
         rr = SD.write_roster_seq_sample(os.path.join(wk, "名單.xlsx"))
@@ -604,10 +680,10 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
         for nm in [n for _s, _i, n, _k in SD.CLASS_STUDENTS if len(n) >= 3]:
             for v in txt2:
                 assert nm not in str(v), "輸出不可殘留名單內的姓名"
-        out(f"[11/12] 跨檔固定編號通過（兩檔出現順序不同仍同號；名單外作答者 "
+        out(f"[11/15] 跨檔固定編號通過（兩檔出現順序不同仍同號；名單外作答者 "
             f"{OUT_NO} 兩檔一致並持久回寫對照表）")
 
-        # ================= [12/12] §1.5 未載入名單要被擋 ===================
+        # ================= [12/15] §1.5 未載入名單要被擋 ===================
         o = parse_args([f1])
         o["semester"], o["course"] = SEM, CRS
         try:
@@ -630,7 +706,112 @@ def run_selftest():  # noqa: C901 - 測試流程刻意寫得很直白
             "拖檔模式應使用設定檔記住的對照表"
         o5 = parse_args(["--roster", rr, "--make-codebook-only"])
         assert o5["make_codebook_only"] and o5["roster"] == rr and not o5["files"]
-        out("[12/12] §1.5 未載入名單被擋、--no-roster 放行、--roster／記住的對照表可用")
+        out("[12/15] §1.5 未載入名單被擋、--no-roster 放行、--roster／記住的對照表可用")
+
+        # ================= [13/15] 2.2：Word（.docx）名單 ==================
+        d6 = os.path.join(tmp, "名單_docx")
+        os.makedirs(d6, exist_ok=True)
+        w1 = SD.write_roster_docx_sample(os.path.join(d6, "名單.docx"))
+        dw = R.parse_roster(w1)
+        assert dw.kind == "docx" and len(dw.records) == 5, \
+            f"Word 表格名單應讀到 5 人，實際 {len(dw.records)}"
+        cbw1, _ = R.build_codebook(roster_path=w1, semester=SEM, course=CRS)
+        assert cbw1.rule == "依序號" and cbw1.roster_ids() == WANT, \
+            "Word 表格名單的編號不正確"
+        assert ".docx" in R.ROSTER_EXT, "ROSTER_EXT 要含 .docx"
+
+        d7 = os.path.join(tmp, "名單_docx_行")
+        os.makedirs(d7, exist_ok=True)
+        w2 = SD.write_roster_docx_lines_sample(os.path.join(d7, "名單.docx"))
+        dw2 = R.parse_roster(w2)
+        assert len(dw2.records) == len(SD.GLUED_STUDENTS), \
+            f"沒有表格的 Word 名單應退回行解析（{len(dw2.records)} 人）"
+        old_doc = os.path.join(d6, "舊格式名單.doc")
+        with open(old_doc, "wb") as f:
+            f.write(b"not a real .doc, only for the error-message test")
+        try:
+            R.parse_roster(old_doc)
+            raise AssertionError(".doc 應該給白話提示")
+        except R.RosterError as e:
+            assert "另存" in str(e) and ".docx" in str(e), f"訊息要白話：{e}"
+        try:
+            D.process_document(old_doc, CRS, SEM, codebook=cb1)
+            raise AssertionError(".doc 目標檔也應該給白話提示")
+        except MaskError as e:
+            assert "另存" in str(e), f"訊息要白話：{e}"
+        out(f"[13/15] Word 名單解析通過（表格版 {len(dw.records)} 人、"
+            f"無表格退回行解析 {len(dw2.records)} 人、.doc 白話提示）")
+
+        # ================= [14/15] 2.2：Word 目標檔遮罩 ====================
+        d8 = os.path.join(tmp, "目標_docx")
+        os.makedirs(d8, exist_ok=True)
+        r8 = SD.write_roster_seq_sample(os.path.join(d8, "名單.xlsx"))
+        cb8, _ = R.build_codebook(roster_path=r8, semester=SEM, course=CRS)
+        t8 = SD.write_target_docx_sample(os.path.join(d8, "回饋單.docx"))
+        b8 = hashlib.sha256(open(t8, "rb").read()).hexdigest()
+        rd = process_any(t8, CRS, SEM, True, codebook=cb8)
+        assert isinstance(rd, D.DocReport), "Word 目標檔應走 doc_mask"
+        assert os.path.basename(rd.dst) == "回饋單02.docx", \
+            f"輸出檔名應為 回饋單02.docx，實際 {os.path.basename(rd.dst)}"
+        assert b8 == hashlib.sha256(open(t8, "rb").read()).hexdigest(), "原檔被更動了"
+        assert rd.name_masked == 12, f"姓名應替換 12 處，實際 {rd.name_masked}"
+        assert rd.id_masked == 7, f"學號應遮罩 7 處，實際 {rd.id_masked}"
+        assert rd.email_masked == 1, f"電子郵件應遮罩 1 處，實際 {rd.email_masked}"
+        assert rd.residue_names == 0 and rd.residue_sids == 0, "輸出殘留掃描應 0 命中"
+
+        import docx as _dx
+        dd = _dx.Document(rd.dst)
+        body = [p.text for p in dd.paragraphs]
+        assert f"第一組的組長是{NO[1]}，紀錄是{NO[2]}。" in body, f"本文替換不正確：{body}"
+        assert f"交件時請找{NO[1]}確認，學號 " + "O" * 9 + "。" in body, \
+            f"被拆成兩個 run 的姓名沒有遮乾淨：{body}"
+        assert "本段沒有任何個資，不應該被動到。" in body, "沒有個資的段落不可被動到"
+        tb = dd.tables[0]
+        assert tb.rows[1].cells[1].text == NO[1] and tb.rows[2].cells[1].text == NO[2], \
+            "表格內的姓名沒有換成學生編號"
+        assert set(tb.rows[1].cells[0].text) == {"O"}, "表格內的學號沒有遮罩"
+        inner = tb.rows[1].cells[2].tables[0]
+        assert inner.rows[0].cells[0].text == NO[3], "巢狀表格內的姓名沒有遮罩"
+        assert dd.sections[0].header.paragraphs[0].text.startswith("環境化學 分組名單"), \
+            "頁首應保留非個資文字"
+        assert NO[4] in dd.sections[0].header.paragraphs[0].text, "頁首的姓名沒有遮罩"
+        assert NO[5] in dd.sections[0].footer.paragraphs[0].text, "頁尾的姓名沒有遮罩"
+        all_txt = D._docx_all_text(_dx.Document(rd.dst))
+        for _s, _sid, _nm, _k in SD.CLASS_STUDENTS:
+            assert _nm not in all_txt, "輸出 docx 不可殘留任何姓名"
+            assert _sid not in all_txt, "輸出 docx 不可殘留任何學號"
+        out(f"[14/15] Word 目標檔遮罩通過（段落 {rd.paragraphs} 個、姓名 {rd.name_masked} 處、"
+            f"拆 run 的姓名、表格＋巢狀表格、頁首頁尾、殘留掃描 0 命中）")
+
+        # ================= [15/15] 2.2：PDF 目標檔遮罩 =====================
+        if os.path.isfile(pdf_sample):
+            d9 = os.path.join(tmp, "目標_pdf")
+            os.makedirs(d9, exist_ok=True)
+            p9 = os.path.join(d9, SD.PDF_SAMPLE_NAME)
+            shutil.copyfile(pdf_sample, p9)
+            b9 = hashlib.sha256(open(p9, "rb").read()).hexdigest()
+            rp = process_any(p9, CRS, SEM, True, codebook=cb8)
+            assert rp.kind == "pdf" and os.path.basename(rp.dst).endswith("02.docx"), \
+                f"PDF 目標檔應輸出文字版 docx，實際 {os.path.basename(rp.dst)}"
+            assert b9 == hashlib.sha256(open(p9, "rb").read()).hexdigest(), "原檔被更動了"
+            assert rp.table_rows == 5, f"應附上 5 列遮罩後名單，實際 {rp.table_rows}"
+            assert rp.residue_names == 0 and rp.residue_sids == 0, "輸出殘留掃描應 0 命中"
+            d9d = _dx.Document(rp.dst)
+            assert d9d.paragraphs[0].text.startswith("本檔為 PDF 抽出文字後的遮罩版"), \
+                "第一段要說明這是文字版"
+            t9 = d9d.tables[0]
+            assert [c.text for c in t9.rows[0].cells] == list(D.TABLE_HEADERS), \
+                "附表表頭不正確"
+            assert t9.rows[1].cells[2].text == "王O明", \
+                f"附表的姓名要遮罩第 2 字，實際 {t9.rows[1].cells[2].text}"
+            assert set(t9.rows[1].cells[1].text) == {"O"}, "附表的學號要全部遮罩"
+            txt9 = D._docx_all_text(_dx.Document(rp.dst))
+            for _s, _sid, _nm, _k in SD.CLASS_STUDENTS:
+                assert _sid not in txt9, "輸出 docx 不可殘留任何學號"
+            out(f"[15/15] PDF 目標檔遮罩通過（{rp.lines} 行文字 → 文字版 docx、"
+                f"附遮罩名單表 {rp.table_rows} 列、殘留掃描 0 命中）")
+        else:
+            out(f"[15/15] 找不到 {SD.PDF_SAMPLE_NAME}，略過 PDF 目標檔遮罩測試")
 
         out("SELFTEST OK")
         return 0
@@ -684,7 +865,7 @@ def run_cli(opts):
 
     for p in opts["files"]:
         try:
-            rep = process_workbook(p, course, sem, opts["mask_names"], codebook=cb)
+            rep = process_any(p, course, sem, opts["mask_names"], codebook=cb)
             results.append(rep)
             out(f"完成：{os.path.basename(rep.src)}")
             for line in rep.summary_lines():
@@ -699,12 +880,7 @@ def run_cli(opts):
     lines = []
     for rep in results:
         lines.append(f"✔ {os.path.basename(rep.src)}")
-        if rep.roster_mode:
-            lines.append(f"    名單內 {rep.in_roster} 人、名單外作答者 {rep.out_roster} 人"
-                         f"、遮罩學號 {rep.id_masked} 筆、文字替換 {rep.text_replacements} 處")
-        else:
-            lines.append(f"    區塊 {rep.blocks} 個、編號學生 {rep.students} 位、"
-                         f"遮罩學號 {rep.id_masked} 筆、文字替換 {rep.text_replacements} 處")
+        lines.append(_short_line(rep))
         lines.append(f"    → {os.path.basename(rep.dst)}")
     for p, msg in errors:
         lines.append(f"✘ {os.path.basename(p)}\n    {msg}")
@@ -781,11 +957,11 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
     state = {"cb": None, "roster": cfg.get("roster_path", ""),
              "codebook": cfg.get("codebook_path", ""), "out_dir": None}
 
-    tk.Label(root, text=APP_NAME + "　2.1（先載入名單 → 固定學生編號 → 遮罩）",
+    tk.Label(root, text=APP_NAME + "　2.2（先載入名單 → 固定學生編號 → 遮罩）",
              font=FT, anchor="w").pack(fill="x", padx=14, pady=(10, 0))
     tk.Label(root,
              text="① 先載入這門課的「原始名單」產生固定編號對照表 → "
-                  "② 選要處理的 Zuvio 檔 → ③ 執行。"
+                  "② 選要處理的檔案（Excel／CSV／Word／PDF）→ ③ 執行。"
                   "同一位學生在每一份檔案、每一週都會拿到同一個學生編號。"
                   "原檔一個位元組都不會被更動。",
              font=F, anchor="w", justify="left", wraplength=860, fg="#333333"
@@ -794,7 +970,7 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
              font=FB, anchor="w", fg="#1b6b3a").pack(fill="x", padx=14, pady=(0, 4))
 
     # ================= ① 原始名單 =========================================
-    rbox = tk.LabelFrame(root, text=" ① 原始名單（Excel／CSV／東華選課名單 PDF，"
+    rbox = tk.LabelFrame(root, text=" ① 原始名單（Excel／CSV／Word／東華選課名單 PDF，"
                                     "或既有的學生編號對照表） ", font=FB, fg="#204a87")
     rbox.pack(fill="x", padx=14, pady=4)
 
@@ -827,7 +1003,8 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
                    command=lambda: refresh_run_state()).pack(anchor="w", padx=12, pady=(0, 8))
 
     # ================= ② 要處理的 Zuvio 檔 ================================
-    box = tk.LabelFrame(root, text=" ② 要處理的 Zuvio 檔（.xlsx / .xlsm / .csv，可多選） ",
+    box = tk.LabelFrame(root, text=" ② 要處理的檔案"
+                                   "（.xlsx / .xlsm / .csv / .docx / .pdf，可多選） ",
                         font=FB, fg="#204a87")
     box.pack(fill="both", expand=False, padx=14, pady=4)
 
@@ -925,7 +1102,7 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
     def pick_roster():
         p = filedialog.askopenfilename(
             title="選擇原始名單或學生編號對照表",
-            filetypes=[("名單（Excel／CSV／PDF）", "*.xlsx *.xlsm *.csv *.pdf"),
+            filetypes=[("名單（Excel／CSV／PDF／Word）", ROSTER_PATTERN),
                        ("所有檔案", "*.*")])
         if not p:
             return
@@ -980,8 +1157,11 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
 
     def add_files():
         picked = filedialog.askopenfilenames(
-            title="選擇要處理的 Zuvio 檔（可按住 Ctrl 多選）",
-            filetypes=[("Excel／CSV", "*.xlsx *.xlsm *.csv"), ("所有檔案", "*.*")])
+            title="選擇要處理的檔案（Excel／CSV／Word／PDF，可按住 Ctrl 多選）",
+            filetypes=[("Excel／CSV／Word／PDF", TARGET_PATTERN),
+                       ("Excel／CSV", "*.xlsx *.xlsm *.csv"),
+                       ("Word／PDF", "*.docx *.pdf"),
+                       ("所有檔案", "*.*")])
         for p in picked:
             if p not in files:
                 files.append(p)
@@ -1023,7 +1203,7 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
         ok = fail = 0
         for p in list(files):
             try:
-                rep = process_workbook(p, course, sem, mk, codebook=cb)
+                rep = process_any(p, course, sem, mk, codebook=cb)
                 ok += 1
                 state["out_dir"] = os.path.dirname(rep.dst)
                 log(f"✔ {os.path.basename(rep.src)}")
@@ -1074,15 +1254,17 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
         messagebox.showinfo(
             f"關於 {APP_NAME}",
             f"{APP_NAME}（{EXE_NAME}）v{VERSION}\n\n"
-            "① 載入原始名單（Excel／CSV／東華選課名單 PDF）→ 產生\n"
+            "① 載入原始名單（Excel／CSV／Word／東華選課名單 PDF）→ 產生\n"
             "　 「{學期}_{課程}_學生名單與學生編號對照表.xlsx」。\n"
-            "　 有「序號」就用序號，沒有就依學號遞增排序給 1..N。\n"
+            "　 每位都有「序號」就用序號（允許缺號），沒有就依學號遞增排序給 1..N。\n"
             "② 遮罩時一律用對照表的固定編號，同一位學生跨檔跨週同號；\n"
             f"　 不在名單的作答者自 {R.OUTSIDER_START} 號起編並登記回對照表。\n"
             "③ 學號、電子郵件每個字元改成 O；姓名欄第 2 字改 O；\n"
             "　 自由文字裡的同學姓名改成學生編號。\n"
             f"④ 新增工作表「{LINK_SHEET_TITLE}」可換回真名 → 只能留本機。\n"
-            "⑤ 另存「原檔名02.xlsx」，原檔完全不動。\n\n"
+            "⑤ 另存「原檔名02.xlsx」，原檔完全不動。\n"
+            "⑥ Word（.docx）目標檔：本文、表格、頁首頁尾一起遮罩 → 原檔名02.docx。\n"
+            "　 PDF 目標檔：抽出文字逐行遮罩 → 原檔名02.docx（文字版，不保留版面）。\n\n"
             "隱私：完全離線，不連網、不上傳任何資料。")
 
     # 啟動時：若設定檔記得上次的對照表，自動載入
@@ -1120,7 +1302,7 @@ def main():
 
     opts = parse_args(args)
     opts["files"] = [f for f in opts["files"]
-                     if f.lower().endswith(SUPPORTED_EXT) and os.path.isfile(f)]
+                     if f.lower().endswith(TARGET_EXT) and os.path.isfile(f)]
     if opts["files"] or opts["make_codebook_only"]:
         code = run_cli(opts)
         write_log(f"{EXE_NAME}_cli.log")

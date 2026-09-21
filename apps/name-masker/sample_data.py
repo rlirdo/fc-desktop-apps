@@ -290,6 +290,119 @@ PDF_EXPECT = [(seq, sid, name, klass) for seq, sid, name, klass in CLASS_STUDENT
 PDF_SAMPLE_NAME = "樣本_選課名單_合成.pdf"
 
 
+# ---- (4d-2) 2.2：「黏連格式」選課名單（姓名／學號／序號中間不留空白） ------
+# 涵蓋實際檔案看得到的每一種列形狀（中＝中文字、9＝數字、A＝英文字母）：
+#   中中中99999999999      姓名＋9 碼學號＋2 碼序號 黏在一起
+#   中中中9999999999       序號 1 碼
+#   中中中 【註*】999…      註記夾在姓名與學號之間
+#   中中中 中中999…        姓名含空白
+#   中中中99999A9999       學號第 6 碼是英文字母
+#   中中中A9999999999      學號＝1 字母＋8 數字（要靠「序號＝上一筆＋1」判斷）
+#   99999999999           這一列沒有姓名（文字層抽不到，罕用字）
+#   中中中 Aaaaa / Aaaaaa999…   姓名折行
+#   中中中 中中中【註 / *】999…  註記被換行切斷
+GLUED_STUDENTS = [
+    # (序號, 學號, 姓名, 班級)
+    (1, "990001001", "王小明", "自資系大三"),
+    (2, "990001002", "林大同", "自資系大三"),
+    (3, "990001003", "王 小美", "資工系大二"),
+    (4, "99000A004", "李大華", "自資系大二"),
+    (5, "A99000005", "張美玲", "自資系大三"),
+    (6, "990001006", "", "自資系大二"),                  # 文字層讀不到姓名
+    (7, "990001007", "趙小強 Jason Chao", "資工系大三"),  # 姓名折行
+    (8, "990001008", "孫 大偉", "自資系大四"),
+    (9, "99001A009", "周小芳", "環科系碩一"),
+    (10, "99001A010", "吳志豪", "自資系大二"),
+    (11, "A99000011", "鄭雅婷", "環科系碩二"),
+    (12, "990001012", "許文彥", "自資系大三"),
+]
+
+_GLUED_HEAD_1 = [
+    "國立東華大學115學年度第1學期 選課名單（合成測試，非真實名單）",
+    "NRES99001合成課程科目名稱: 科目代號:",
+    "學    分: 3/3",
+    "任課教師: /測試老師",
+    "班    級: 合成班",
+    "上課時間: 星期三 3 4 5",
+    "上課教室: 合成大樓A101",
+    "頁    次: 1/2",
+    "班    級 姓      名 序號 學    號 1 2 3 4 5 6 7 8 9 10 出席 平時 期中 期末 總分",
+    "未列姓名者請通知教務處，本名單僅供合成測試之用。",
+]
+_GLUED_HEAD_2 = [
+    "國立東華大學115學年度第1學期 選課名單（合成測試，非真實名單）",
+    "NRES99001合成課程科目名稱: 科目代號:",
+    "頁    次: 2/2",
+    "班    級 姓      名 序號 學    號 1 2 3 4 5 6 7 8 9 10 出席 平時 期中 期末 總分",
+]
+_GLUED_FOOT = "註*:前一學期GPA平均未達2.0者。 共2頁,第{p}頁2026/9/15 列印 12:59:02"
+
+# 每位學生實際被 pypdf 抽出來的那一（或兩）行
+GLUED_BODY_1 = [
+    "王小明9900010011 自資系大三",
+    "林大同 【註*】9900010022 自資系大三",
+    "王 小美9900010033 資工系大二",
+    "李大華99000A0044 自資系大二",
+    "張美玲A990000055 自資系大三",
+    "9900010066 自資系大二",
+    "趙小強 Jason",
+    "Chao9900010077 資工系大三",
+]
+GLUED_BODY_2 = [
+    "孫 大偉【註",
+    "*】9900010088 自資系大四",
+    "周小芳99001A0099 環科系碩一",
+    "吳志豪99001A01010 自資系大二",
+    "鄭雅婷A9900001111 環科系碩二",
+    "許文彥99000101212 自資系大三",
+]
+
+PDF_LINES_GLUED = (_GLUED_HEAD_1 + GLUED_BODY_1 + [_GLUED_FOOT.format(p=1)]
+                   + _GLUED_HEAD_2 + GLUED_BODY_2 + [_GLUED_FOOT.format(p=2)])
+PDF_GLUED_EXPECT = [(seq, sid, name, klass)
+                    for seq, sid, name, klass in GLUED_STUDENTS]
+PDF_GLUED_SAMPLE_NAME = "樣本_選課名單_合成_黏連格式.pdf"
+
+# 缺號（序號不連續）但仍應照序號編號：刪掉序號 2、4 那兩位
+PDF_LINES_GAP = _GLUED_HEAD_1 + [
+    ln for i, ln in enumerate(GLUED_BODY_1) if i not in (1, 3)
+] + [_GLUED_FOOT.format(p=1)]
+
+
+def write_glued_pdf_via_word(path):
+    """用 Word COM 把 PDF_LINES_GLUED 印成兩頁的合成 PDF（只在重新產生樣本時用）。
+
+    需要 Windows + Microsoft Word + pywin32。產生的檔案請放在
+    `selftest\\樣本_選課名單_合成_黏連格式.pdf`。
+    """
+    import os
+
+    import win32com.client as win32           # noqa: N813
+
+    path = os.path.abspath(path)
+    page1 = _GLUED_HEAD_1 + GLUED_BODY_1 + [_GLUED_FOOT.format(p=1)]
+    page2 = _GLUED_HEAD_2 + GLUED_BODY_2 + [_GLUED_FOOT.format(p=2)]
+    body = "\r".join(page1) + "\r" + chr(12) + "\r".join(page2)
+    word = win32.gencache.EnsureDispatch("Word.Application")
+    word.Visible = False
+    doc = None
+    try:
+        doc = word.Documents.Add()
+        doc.PageSetup.LeftMargin = 28
+        doc.PageSetup.RightMargin = 28
+        rng = doc.Content
+        rng.Font.Name = "微軟正黑體"
+        rng.Font.Size = 9
+        rng.ParagraphFormat.SpaceAfter = 0
+        rng.Text = body
+        doc.SaveAs2(path, FileFormat=17)       # 17 = wdFormatPDF
+    finally:
+        if doc is not None:
+            doc.Close(False)
+        word.Quit()
+    return path
+
+
 def write_roster_pdf_via_word(path):
     """用 Word COM 把 PDF_LINES_ONELINE 印成一份小型合成 PDF（只在重新產生樣本時用）。
 
@@ -346,6 +459,98 @@ def _write_rows(path, rows, title="sheet1"):
         ws.append(list(row))
     wb.save(path)
     wb.close()
+    return path
+
+
+# --------------------------------------------------------------------------
+# 5) 2.2：Word（.docx）合成檔 — 名單與「要遮罩的目標檔」
+# --------------------------------------------------------------------------
+def _new_docx():
+    try:
+        import docx
+    except ImportError:  # pragma: no cover
+        raise RuntimeError("需要 python-docx（pip install python-docx）")
+    return docx
+
+
+def write_roster_docx_sample(path):
+    """Word 名單（一張表格：序號｜學號｜姓名｜班級）。"""
+    docx = _new_docx()
+    doc = docx.Document()
+    doc.add_paragraph("國立東華大學115學年度第1學期 選課名單（合成測試）")
+    t = doc.add_table(rows=1, cols=4)
+    hdr = ["序號", "學號", "姓名", "班級"]
+    for i, h in enumerate(hdr):
+        t.rows[0].cells[i].text = h
+    for seq, sid, name, klass in CLASS_STUDENTS:
+        c = t.add_row().cells
+        for i, v in enumerate((str(seq), sid, name, klass)):
+            c[i].text = v
+    doc.add_paragraph("註：本表為合成資料，非真實名單。")
+    doc.save(path)
+    return path
+
+
+def write_roster_docx_lines_sample(path):
+    """Word 名單（沒有表格，只有一行一位學生的段落 → 走 PDF 那一套行解析）。"""
+    docx = _new_docx()
+    doc = docx.Document()
+    for ln in PDF_LINES_GLUED:
+        doc.add_paragraph(ln)
+    doc.save(path)
+    return path
+
+
+# 目標檔裡會用到的合成句子（{n} = 第 n 位 CLASS_STUDENTS 的姓名）
+DOCX_TARGET_BODY = [
+    "第一組的組長是{1}，紀錄是{2}。",
+    "{3}的學號是990054003，電子郵件 s003@gms.ndhu.edu.tw。",
+    "這次報告我和{4}、{5}一起完成。",
+    "本段沒有任何個資，不應該被動到。",
+]
+DOCX_TARGET_TABLE = [
+    ["學號", "姓名", "備註"],
+    ["990054001", "王小明", "和林大同同組"],
+    ["990054002", "林大同", "缺席一次"],
+]
+DOCX_TARGET_NESTED = [["陳曉華", "990054003"]]
+DOCX_TARGET_HEADER = "環境化學 分組名單　承辦：歐陽小花（990054004）"
+DOCX_TARGET_FOOTER = "聯絡人：李明 990054005"
+# 這一段刻意把姓名拆成兩個 run（Word 實際存檔常常這樣）
+DOCX_SPLIT_RUNS = ("交件時請找王小", "明確認，學號 9900", "54001。")
+
+
+def write_target_docx_sample(path):
+    """要遮罩的 Word 目標檔：本文、拆 run 的姓名、表格、巢狀表格、頁首頁尾。"""
+    docx = _new_docx()
+    doc = docx.Document()
+    names = {i: s[2] for i, s in enumerate(CLASS_STUDENTS, start=1)}
+    doc.add_paragraph("環境化學 第 3 週 分組回饋（合成測試檔）")
+    for tpl in DOCX_TARGET_BODY:
+        s = tpl
+        for i, nm in names.items():
+            s = s.replace("{%d}" % i, nm)
+        doc.add_paragraph(s)
+
+    p = doc.add_paragraph()
+    for chunk in DOCX_SPLIT_RUNS:
+        p.add_run(chunk)
+
+    t = doc.add_table(rows=0, cols=3)
+    for row in DOCX_TARGET_TABLE:
+        cells = t.add_row().cells
+        for i, v in enumerate(row):
+            cells[i].text = v
+    inner = t.rows[1].cells[2].add_table(rows=0, cols=2)
+    for row in DOCX_TARGET_NESTED:
+        cells = inner.add_row().cells
+        for i, v in enumerate(row):
+            cells[i].text = v
+
+    sec = doc.sections[0]
+    sec.header.paragraphs[0].text = DOCX_TARGET_HEADER
+    sec.footer.paragraphs[0].text = DOCX_TARGET_FOOTER
+    doc.save(path)
     return path
 
 

@@ -16,7 +16,7 @@ pipeline.py — 「學生作業文字雲」流程核心（可被 GUI 或 CLI 呼
 
 2.1 的關鍵改變：
   * 輸入若已是 NameMasker 輸出（A 欄有「學生編號」）→ 照舊，不需要名單。
-  * 輸入若是**原始 Zuvio 匯出檔** → 必須提供原始名單（Excel／CSV／東華選課名單 PDF）
+  * 輸入若是**原始 Zuvio 匯出檔** → 必須提供原始名單（Excel／CSV／Word／東華選課名單 PDF）
     或既有的學生編號對照表；程式會產生／沿用
     `{學期}_{課程縮寫}_學生名單與學生編號對照表.xlsx`，
     名單外的作答者自 101 起持久登記並回寫。
@@ -39,7 +39,7 @@ import datetime as dt
 
 APP_NAME = "HomeworkWordCloud"
 APP_TITLE = "學生作業文字雲"
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 
 # --check-privacy 掃描時要看的純文字副檔名
 TEXT_EXT = {".csv", ".json", ".md", ".txt"}
@@ -201,7 +201,7 @@ NO_ROSTER_HINT = (
     "必須先有名單才能處理：\n"
     "  {files}\n\n"
     "請在「原始名單或學生編號對照表」欄選一份檔案：\n"
-    "  ・原始名單：Excel／CSV（要有「學號」「姓名」欄），或東華教務系統的選課名單 PDF\n"
+    "  ・原始名單：Excel／CSV／Word（要有「學號」「姓名」欄），或東華教務系統的選課名單 PDF\n"
     "  ・或既有的「115-1_EC_學生名單與學生編號對照表.xlsx」\n\n"
     "為什麼一定要？沒有名單就只能依「檔案內出現順序」編號，"
     "同一位同學在不同題目會拿到不同編號，沒辦法跨題跨週追蹤。\n"
@@ -885,6 +885,36 @@ def _selftest_roster(tmp, cfg, log):
         got = R.parse_pdf_lines(lines)
         if len(got) != 2 or got[0]["學號"] != "990000001" or got[0]["姓名"] != "甲小明":
             problems.append(f"PDF 行解析（{label}）失敗：{got}")
+
+    # 2.2：完全黏連（姓名／學號／序號中間不留空白）＋ 含英文字母的學號
+    #      ＋ 跨行被切斷的【註*】＋ 讀不到姓名的那一列
+    glued_lines = [
+        "班    級 姓      名 序號 學    號 1 2 3 4 5 6 7 8 9 10 出席 平時",
+        "甲小明9900000011 自資系大三",            # 姓名＋9 碼學號＋1 碼序號 黏在一起
+        "乙小華 【註*】9900000022 自資系大三",     # 註記夾在中間
+        "丙大文99000A0033 資工系大二",            # 學號第 6 碼是英文字母
+        "丁美玲A990000044 自資系大二",            # 學號＝1 字母＋8 數字
+        "9900000055 自資系大三",                  # 這一列讀不到姓名
+        "戊小強 Ming",                            # 姓名折行（中文名＋英文名前半）
+        "Wu9900000066 環科系碩一",                # …英文名後半＋學號＋序號
+        "註*:前一學期GPA平均未達2.0者。 共1頁,第1頁2026/9/15 列印 12:59:02",
+    ]
+    glued_want = [
+        (1, "990000001", "甲小明"), (2, "990000002", "乙小華"),
+        (3, "99000A003", "丙大文"), (4, "A99000004", "丁美玲"),
+        (5, "990000005", ""), (6, "990000006", "戊小強 Ming Wu"),
+    ]
+    got_g = R.parse_pdf_lines(glued_lines)
+    if len(got_g) != len(glued_want):
+        problems.append(f"PDF 行解析（黏連格式）應讀到 {len(glued_want)} 人，"
+                        f"實際 {len(got_g)}")
+    else:
+        for g, (seq, sid, name) in zip(got_g, glued_want):
+            if (g["序號"], g["學號"], g["姓名"]) != (seq, sid, name):
+                problems.append("PDF 行解析（黏連格式）不符："
+                                f"{(g['序號'], g['學號'], g['姓名'])} != "
+                                f"{(seq, sid, name)}")
+    log(f"  PDF 行解析（黏連格式）：{len(got_g)} 人，含字母學號、缺姓名列、姓名折行")
     noise = R.parse_pdf_lines([
         "班    級 姓      名序號 學    號 1 2 3 4 5 6 7 8 9 10 平時 期中 期未 成績總計 備註",
         "國立東華大學115學年度第1學期選課名單",
@@ -1025,9 +1055,9 @@ def _selftest_roster(tmp, cfg, log):
 
     # 對照表已回寫（重新讀檔）
     cb_again = R.load_codebook(cb.path)
-    if len(cb_again.outside) != 1 or cb_again.outside[0]["學生編號"] != out_code:
-        problems.append(f"名單外作答者沒有正確回寫對照表：{cb_again.outside}")
-    elif not cb_again.outside[0].get("首次出現檔案"):
+    if len(cb_again.outside) != 1 or cb_again.outside[0].code != out_code:
+        problems.append(f"名單外作答者沒有正確回寫對照表：{len(cb_again.outside)} 筆")
+    elif not cb_again.outside[0].src:
         problems.append("名單外作答者沒有記下「首次出現檔案」")
 
     # 附錄概念矩陣：學生依編號數字排序

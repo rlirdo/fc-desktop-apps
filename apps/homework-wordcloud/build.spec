@@ -59,6 +59,12 @@ print('[spec] pptx templates 逐檔加入 %d 個：%s' % (len(_tpl_files), sorte
 # 放一個佔位檔讓 pptx/oxml/ 真實存在。
 datas.append((os.path.join(HERE, 'pptx_oxml.keep'), os.path.join('pptx', 'oxml')))
 
+# python-docx（2.2.1）：讀 Word 名單。templates/ 內的 default.docx、default-header.xml… 要帶走。
+datas += collect_data_files('docx')
+# 同樣的 macOS 陷阱：python-docx 用 docx/parts/../templates/x.xml 讀範本，
+# 磁碟上沒有 docx/parts/ 目錄會 ENOENT（只有 parts/ 用到 ".."，opc/oxml 沒有）。
+datas.append((os.path.join(HERE, 'docx_parts.keep'), os.path.join('docx', 'parts')))
+
 # ---------------------------------------------------------------- 模組
 hiddenimports = [
     'jieba', 'jieba.finalseg', 'jieba.finalseg.prob_start',
@@ -66,6 +72,8 @@ hiddenimports = [
     'wordcloud', 'wordcloud.query_integral_image',
     'PIL.Image', 'PIL.ImageDraw', 'PIL.ImageFont', 'PIL.ImageColor',
     'numpy', 'openpyxl', 'pptx',
+    # 2.2.1：Word 名單
+    'docx', 'lxml', 'lxml.etree', 'lxml._elementpath',
     # 2.1：東華教務系統選課名單 PDF 的名單解析（純 Python，不用 PyMuPDF）
     'pypdf', 'pypdf.generic', 'pypdf._page', 'pypdf._reader',
 ]
@@ -130,7 +138,7 @@ if sys.platform == 'darwin':
         info_plist={
             'CFBundleName': 'HomeworkWordCloud',
             'CFBundleDisplayName': '學生作業文字雲',
-            'CFBundleShortVersionString': '2.2.0',
+            'CFBundleShortVersionString': '2.2.1',
             'NSHighResolutionCapable': True,
         },
     )
