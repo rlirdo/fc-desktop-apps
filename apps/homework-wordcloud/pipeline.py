@@ -39,7 +39,7 @@ import datetime as dt
 
 APP_NAME = "HomeworkWordCloud"
 APP_TITLE = "學生作業文字雲"
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 # --check-privacy 掃描時要看的純文字副檔名
 TEXT_EXT = {".csv", ".json", ".md", ".txt"}
@@ -101,24 +101,59 @@ DEFAULTS = {
     "semester_start": "", "logo_path": "", "stopwords_extra": [],
     "keep_short": [], "user_words": [], "deck_series": "",
     "synonyms": {},                   # {正式概念: [同義詞, ...]}
-    "question_types": {},             # {類別名: [關鍵詞, ...]}，覆寫預設兩類
+    "question_types": {},             # {類別名: [關鍵詞, ...]}，覆寫預設四類（順序即優先序）
     "appendix_matrix": True,          # 要不要做附錄「概念矩陣」頁
-    "top_concepts": 3,                # 每題抓幾個重點概念
+    "top_concepts": 6,                # 每題抓幾個重點概念（2.2 起預設 6）
     "min_words_for_cloud": 5, "input_dir": "", "output_dir": "",
     "codebook_path": "",              # 2.1：上次用的「原始名單或學生編號對照表」
+    "config_version": 0.0,            # 2.2：設定檔格式版本，用來做一次性遷移
 }
 
+CONFIG_VERSION = 2.2                  # 六個重點＋四類提問
 
-def load_config(path=None):
-    """讀設定：優先讀使用者設定檔，其次讀打包進來的 config.json 範本。"""
+
+def _migrate_user_cfg(cfg, user_raw, log=None):
+    """2.2 一次性遷移：舊的使用者設定檔會把「3 個重點／兩類提問」蓋回來。
+
+    舊版（config_version < 2.2）的 settings.json 存的是 2.1 的預設值，
+    載入順序又排在打包的 config.json 後面，會把 2.2 的新預設整個蓋掉。
+    因此凡是「看得出來是 2.1 留下來的預設值」就換成 2.2 的新預設；
+    使用者自己改過的值（例如刻意設 top_concepts=4、自訂 4 類關鍵詞）保留不動。
+    """
+    if float(user_raw.get("config_version") or 0) >= CONFIG_VERSION:
+        return cfg
+    if int(cfg.get("top_concepts") or 0) == 3:          # 2.1 的預設值
+        cfg["top_concepts"] = DEFAULTS["top_concepts"]
+        if log:
+            log("  [設定升級] 每題重點數 3 → 6（2.2 預設）")
+    qt = cfg.get("question_types") or {}
+    if qt and len(qt) < 4:                              # 2.1 只有兩類
+        cfg["question_types"] = {}                      # 清空 → 用 2.2 的四類預設
+        if log:
+            log("  [設定升級] 提問分類 兩類 → 四類（2.2 預設）")
+    cfg["config_version"] = CONFIG_VERSION
+    return cfg
+
+
+def load_config(path=None, log=None):
+    """讀設定：先讀打包進來的 config.json 範本，再讓使用者設定檔覆寫。"""
     cfg = dict(DEFAULTS)
-    for p in [resource_path("config.json"), path or user_config_path()]:
+    user_p = path or user_config_path()
+    for p in [resource_path("config.json"), user_p]:
         if p and os.path.exists(p):
             try:
                 with open(p, encoding="utf-8") as f:
                     cfg.update({k: v for k, v in json.load(f).items() if k in DEFAULTS})
             except Exception:
                 pass
+    user_raw = {}
+    if user_p and os.path.exists(user_p):
+        try:
+            with open(user_p, encoding="utf-8") as f:
+                user_raw = json.load(f)
+        except Exception:
+            user_raw = {}
+    cfg = _migrate_user_cfg(cfg, user_raw, log=log)
     # 範本裡的相對路徑（input/output/對照表）在桌面版沒有意義，交給 GUI 自己決定
     for k in ("input_dir", "output_dir", "codebook_path"):
         if cfg.get(k) and not os.path.isabs(cfg[k]):
@@ -132,6 +167,7 @@ def user_config_path():
 
 def save_config(cfg):
     data = {k: cfg.get(k, v) for k, v in DEFAULTS.items()}
+    data["config_version"] = CONFIG_VERSION          # 存檔就代表已是 2.2 格式
     with open(user_config_path(), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     return user_config_path()
@@ -334,9 +370,9 @@ def run_pipeline(cfg, input_dir, out_dir, week_label, deck_name,
         json.dump(index, f, ensure_ascii=False, indent=2)
 
     log("")
-    log("[2/5] 斷詞、三個重點／概念矩陣、提問分類")
+    log("[2/5] 斷詞、六個重點／概念矩陣、四類提問分類")
     result = AN.analyse_dir(out_dir, index=index,
-                            top_concepts=int(cfg.get("top_concepts", 3) or 3), log=log)
+                            top_concepts=int(cfg.get("top_concepts", 6) or 6), log=log)
     AN.write_outputs(result, out_dir, cfg.get("course_name", ""), week_label)
 
     log("")
@@ -644,31 +680,48 @@ def _link_sheet_leak(input_dir, out_dir, log=print):
 
 
 def _selftest_questions(log):
-    """提問偵測與兩類分類的規則驗證（含陳述句干擾與各型問句）。"""
+    """提問偵測與**四類**分類的規則驗證（2.2）。
+
+    規格：每一類至少 3 個問句，外加陳述句干擾；「其他」要 ≤ 20%。
+    """
     from core import analyze as AN
     cases = [
-        # (句子, 是不是提問, 應該分到哪一類)
+        # ---- 陳述句干擾（含疑問詞但不是提問）
         ("了解物質是由原子組成，以及原子如何組成不同物質", False, None),
         ("理解物質的微觀結構如何決定性質", False, None),
         ("我知道要怎麼做實驗了", False, None),
+        ("這次實驗的步驟我都記下來了。", False, None),
         ("原子核帶正電，電子帶負電。", False, None),
         ("原子是什麼", False, None),                  # 沒問號、疑問詞不在句首
         ("好想知道更多", False, None),
+        # ---- 計算數據類（≥3）
+        ("這個公式要怎麼算？", True, "計算數據類"),
+        ("濃度的單位是什麼？", True, "計算數據類"),
+        ("莫耳數要怎麼換算？", True, "計算數據類"),
+        ("有效數字要取到第幾位？", True, "計算數據類"),
+        # ---- 操作應用類（≥3）
+        ("這個實驗的步驟要怎麼做？", True, "操作應用類"),
+        ("那要用什麼儀器？", True, "操作應用類"),
+        ("要怎麼觀察這個現象？", True, "操作應用類"),
+        ("How do we measure it?", True, "操作應用類"),
+        # ---- 延伸探究類（≥3）
+        ("如果換成替代溶劑會不會比較好？", True, "延伸探究類"),
+        ("這個對環境的影響是什麼？", True, "延伸探究類"),
+        ("未來產業會怎麼因應這個政策？", True, "延伸探究類"),
+        ("在生活中有沒有實際的案例？", True, "延伸探究類"),
+        # ---- 概念理解類（≥3）
+        ("為什麼原子會結合成分子？", True, "概念理解類"),
+        ("什麼是原子", True, "概念理解類"),           # 句首疑問詞
+        ("下列何者正確？", True, "概念理解類"),
         ("有什麼不同？", True, "概念理解類"),
         ("Why?", True, "概念理解類"),
         ("Why important?", True, "概念理解類"),
-        ("為什麼原子會結合成分子？", True, "概念理解類"),
-        ("什麼是原子", True, "概念理解類"),           # 句首疑問詞
-        ("這樣對嗎", True, "概念理解類"),             # 句尾「嗎」
-        ("下列何者正確？", True, "概念理解類"),
-        ("要怎麼看到？", True, "操作應用類"),
-        ("這個公式要怎麼算？", True, "操作應用類"),
-        ("那要用什麼儀器？", True, "操作應用類"),
-        ("How do we measure it?", True, "操作應用類"),
+        ("這樣對嗎", True, "概念理解類"),             # 句尾「嗎」→ 走後備規則
         ("我想知道為什麼會這樣", True, "概念理解類"),
     ]
     problems = []
     n_q = n_other = 0
+    per_cat = {}
     for s, want_q, want_c in cases:
         got_q = AN.is_question_sentence(s)
         if got_q != want_q:
@@ -678,14 +731,23 @@ def _selftest_questions(log):
             continue
         n_q += 1
         got_c = AN.classify_question(s)[0]
+        per_cat[got_c] = per_cat.get(got_c, 0) + 1
         if got_c == AN.OTHER_TYPE:
             n_other += 1
         if got_c != want_c:
             problems.append(f"分類錯誤（應為 {want_c}，得到 {got_c}）：{s}")
+    want_cats = ["計算數據類", "操作應用類", "延伸探究類", "概念理解類"]
+    if list(AN.QUESTION_TYPES.keys()) != want_cats:
+        problems.append(f"提問類別應該是四類 {want_cats}，實際 "
+                        f"{list(AN.QUESTION_TYPES.keys())}")
+    for c in want_cats:
+        if per_cat.get(c, 0) < 3:
+            problems.append(f"{c} 的正確分類只有 {per_cat.get(c, 0)} 個，規格要求 ≥3")
     if n_q and n_other * 100.0 / n_q > 20:
         problems.append(f"「其他」佔 {n_other * 100.0 / n_q:.0f}%，超過兩成")
-    log(f"  提問規則：{len(cases)} 個案例，問句 {n_q} 個，其他 {n_other} 個，"
-        f"錯誤 {len(problems)} 個")
+    log(f"  提問規則（四類）：{len(cases)} 個案例，問句 {n_q} 個，"
+        + "、".join(f"{c} {per_cat.get(c, 0)} 個" for c in want_cats)
+        + f"，其他 {n_other} 個，錯誤 {len(problems)} 個")
     return problems
 
 
@@ -990,13 +1052,16 @@ def selftest(log=print, keep=False):
     """用內建合成資料（NameMasker 2.0 格式）跑完整流程並驗收。
 
     驗收項目：
-      1. 簡報頁數 = 3（封面／總覽／結尾）＋ 題數（＋附錄頁）
+      1. 簡報頁數 = 3（封面／總覽／結尾）＋ 題數（＋附錄頁，每頁 2 題、最多 3 頁）
       2. 每題都有 Q0N_concept_matrix.csv 與 Q0N_questions.csv
-      3. 每個覆蓋率都介於 0–1
+      3. 每個覆蓋率都介於 0–1，且「≥1 個 ≥ ≥3 個 ≥ 全部都提到」
+      3b.**2.2**：每題開放題重點數 = min(6, 候選數)；概念矩陣欄數 = 1 + 重點數 + 1；
+          候選不足 6 個時有幾個列幾個（不補空字串、不報錯）
       4. 幾何 QA：出界 0、重疊 0
       5. 隱私檢查 0 命中（名冊姓名＋9 碼學號＋email 樣式）
       6. 文字雲 ≥ 3 張
-      7. 每一頁都有備忘稿逐字稿
+      7. 每一頁都有備忘稿逐字稿，且 ≤ 350 字
+      7b.**2.2**：四類提問的分類單元測試（每類 ≥3 個問句＋陳述句干擾，其他 ≤20%）
       8. 向下相容（原始 Zuvio 匯出格式）
       9. **2.1 名單流程**：PDF／Excel 名單解析、固定編號、兩題同人同號、
          名單外作答者 101 起且回寫對照表、全班人數＝名單人數、
@@ -1017,10 +1082,13 @@ def selftest(log=print, keep=False):
         n_q = len(qs)
         problems = []
 
-        # ---- 1. 頁數
-        want_appendix = bool(cfg.get("appendix_matrix", True)) and \
-            any(q.get("重點概念") for q in qs)
-        expect = 3 + n_q + (1 if want_appendix else 0)
+        # ---- 1. 頁數（2.2：附錄每頁 2 題、最多 3 頁）
+        from core import deck as _DK
+        n_apx_q = sum(1 for q in qs if q.get("重點概念"))
+        n_apx = 0
+        if bool(cfg.get("appendix_matrix", True)) and n_apx_q:
+            n_apx = min(-(-n_apx_q // _DK.APX_PER_PAGE), _DK.APX_MAX_PAGES)
+        expect = 3 + n_q + n_apx
         if not os.path.exists(pptx):
             problems.append("沒有產生 pptx")
             pages = 0
@@ -1030,7 +1098,7 @@ def selftest(log=print, keep=False):
             pages = len(prs.slides)
         if pages != expect:
             problems.append(f"簡報 {pages} 頁，應該是 {expect} 頁"
-                            f"（3 + 題數 {n_q}{' + 附錄 1' if want_appendix else ''}）")
+                            f"（3 + 題數 {n_q}{f' + 附錄 {n_apx}' if n_apx else ''}）")
 
         # ---- 2. 每題兩個 CSV
         for q in qs:
@@ -1040,14 +1108,53 @@ def selftest(log=print, keep=False):
 
         # ---- 3. 覆蓋率介於 0–1
         for q in qs:
-            vals = [q.get("整體覆蓋率", 0), q.get("三個都提到比例", 0)] + \
+            vals = [q.get("整體覆蓋率", 0), q.get("提到三個以上比例", 0),
+                    q.get("全部提到比例", 0)] + \
                    [f["覆蓋率"] for f in q.get("重點概念", [])]
             for v in vals:
                 if not (0.0 <= float(v) <= 1.0):
                     problems.append(f"{q['題號']} 覆蓋率 {v} 不在 0–1 之間")
-        n_focus = sum(1 for q in qs if len(q.get("重點概念", [])) == 3)
+            # 覆蓋率的單調關係：整體（≥1 個）≥ ≥3 個 ≥ 全部都提到
+            if not (q.get("整體覆蓋率", 0) >= q.get("提到三個以上比例", 0)
+                    >= q.get("全部提到比例", 0)):
+                problems.append(f"{q['題號']} 三種覆蓋率不符合 ≥1 ≥ ≥3 ≥ 全部 的關係")
+
+        # ---- 3b. 2.2：每題重點數 = min(6, 候選數)；概念矩陣欄數要對得上
+        import csv as _csv2
+        n_focus = 0
+        for q in qs:
+            focus = q.get("重點概念", [])
+            cand = int(q.get("候選概念數", 0))
+            if not focus:
+                continue                       # 選擇題／測驗題不做重點概念
+            want_n = min(6, cand)
+            if len(focus) != want_n:
+                problems.append(f"{q['題號']} 重點數 {len(focus)}，"
+                                f"應該是 min(6, 候選 {cand}) = {want_n}")
+            if len(focus) == 6:
+                n_focus += 1
+            cm = os.path.join(out_dir, f"{q['題號']}_concept_matrix.csv")
+            if os.path.exists(cm):
+                with open(cm, encoding="utf-8-sig", newline="") as f:
+                    head = next(_csv2.reader(f), [])
+                if len(head) != len(focus) + 2:
+                    problems.append(f"{q['題號']}_concept_matrix.csv 有 {len(head)} 欄，"
+                                    f"應該是學生編號 + {len(focus)} 概念 + 提到重點數")
+                if head[:1] != ["學生編號"] or head[-1:] != ["提到重點數"]:
+                    problems.append(f"{q['題號']}_concept_matrix.csv 欄位標題不對：{head}")
         if n_focus < 1:
-            problems.append("沒有任何一題抓到 3 個重點概念")
+            problems.append("沒有任何一題抓到 6 個重點概念")
+
+        # ---- 3c. 2.2：候選不足 6 個時要「有幾個列幾個」，不補空字串、不報錯
+        from core import analyze as _AN
+        few = [{"學生編號": "115-1_ZZ_1", "作答內容": "原子經濟 廢棄物減量"},
+               {"學生編號": "115-1_ZZ_2", "作答內容": "原子經濟 綠色溶劑"}]
+        few_c, few_ps, _cf, few_spk = _AN.pick_concepts(few, top_n=6)
+        if len(few_c) != min(6, len(few_spk)) or any(not c for c in few_c):
+            problems.append(f"候選不足 6 個時重點數不對：{few_c}（候選 {len(few_spk)}）")
+        _keys, _mat = _AN.concept_matrix(few_c, few_ps)
+        if any(len(v) != len(few_c) for v in _mat.values()):
+            problems.append("候選不足 6 個時概念矩陣欄數與重點數對不上")
 
         # ---- 4. 幾何 QA
         rep_p = os.path.join(out_dir, "qa", "layout_report.json")
@@ -1122,7 +1229,7 @@ def selftest(log=print, keep=False):
             log(traceback.format_exc())
 
         log("")
-        log(f"檢查結果：簡報 {pages}/{expect} 頁、題數 {n_q}、每題重點 3 個的有 {n_focus} 題、"
+        log(f"檢查結果：簡報 {pages}/{expect} 頁、題數 {n_q}、每題重點 6 個的有 {n_focus} 題、"
             f"文字雲 {len(pngs)} 張、出界 {oob} 處、重疊 {ovl} 處、隱私命中 {hits} 處")
         if problems:
             for p in problems:

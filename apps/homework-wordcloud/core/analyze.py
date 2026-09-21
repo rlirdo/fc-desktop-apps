@@ -1,28 +1,36 @@
 # -*- coding: utf-8 -*-
 """
-analyze.py — 吃某週資料夾內的 Q*.csv，產出每題分析。（2.0）
+analyze.py — 吃某週資料夾內的 Q*.csv，產出每題分析。（2.2）
 
-2.0 新增（**決定性演算法，離線可跑，不依賴任何 LLM／API**）：
-  1. 三個重點與概念矩陣
+2.2 的改變：三個重點 → **六個重點**、兩類提問 → **四類提問**。
+
+決定性演算法，離線可跑，不依賴任何 LLM／API：
+  1. 六個重點與概念矩陣
      - 概念候選＝jieba 詞頻 TOP（沿用 user_words／stopwords）。
-     - 重點＝前 3 名「提及人數」最高的概念；同分以詞頻決，再同分以字典序決。
-     - 概念矩陣：列＝學生編號、欄＝3 個重點概念，值 1／0（含 config.json 的 synonyms）。
-       輸出 `Q0N_concept_matrix.csv`。
+     - 重點＝前 6 名「提及人數」最高的概念；同分以詞頻決，再同分以字典序決。
+       候選不足 6 個時**有幾個列幾個**（不補空字串、不報錯）。
+     - 概念矩陣：列＝學生編號、欄＝6 個重點概念，值 1／0（含 config.json 的 synonyms），
+       最後一欄「提到重點數」。輸出 `Q0N_concept_matrix.csv`。
      - 覆蓋率：每個概念＝提及人數／作答人數；整體覆蓋率＝至少提到 1 個重點的比例；
-       另算「三個都提到」的比例。
-  2. 提問抽取與兩類分類
-     - **提問句判定（寧缺勿濫）**：句尾是 ？／?，或句尾是 嗎／呢，
+       另算「提到三個以上比例」（≥3 個重點）與「全部提到比例」（六個都提到）。
+  2. 提問抽取與四類分類
+     - **提問句判定（寧缺勿濫，規則與 2.1 相同）**：句尾是 ？／?，或句尾是 嗎／呢，
        或句子**開頭**就是疑問詞（為什麼／如何／怎麼／是否／什麼是／哪些…，
        英文 Why／How／What／Is／Can…）。
        句中含疑問詞但屬陳述句的**不算**，例如
        「了解物質是由原子組成，以及原子如何組成不同物質」。
-     - 兩類（規則式，關鍵詞可在 config.json 的 question_types 改）：
+     - 四類（規則式，關鍵詞可在 config.json 的 question_types 改，
+       **dict 的先後順序就是判定優先序**，命中數相同時排前面的贏）：
+         計算數據類：怎麼算／計算／公式／單位／數值／濃度／莫耳／pH／平衡常數／
+                     幾次方／換算／多少／比例／百分比／有效數字
+         操作應用類：怎麼做／如何（做、用、看、觀察、測量）／步驟／方法／實驗／
+                     儀器／操作／應用／例子／處理／How
+         延伸探究類：未來／影響／如果／會不會／能不能／可否／為什麼不／生活／產業／
+                     政策／案例／比較好／替代／永續／環境衝擊／風險
          概念理解類：為什麼／為何／原理／定義／意義／差別／不同／關係／機制／
-                     是什麼／重要／有何／何者／哪一項／Why／What…
-         操作應用類：怎麼／如何／步驟／公式／單位／計算／方法／應用／例子／
-                     實驗／儀器／測量／How…
-       兩類都沒中時走後備規則（含 什麼／嗎／為／Why → 概念理解類），
-       再沒中才計入「其他」。
+                     是什麼／什麼是／何者／哪一項／本質／特性／Why／What
+       四類都沒中時走後備規則（含 什麼／嗎／為／Why → 概念理解類），
+       再沒中才計入「其他」（目標 ≤ 兩成）。
      - 統計各類提問數、提問人數、代表句（≤40 字，已去識別化）。
        輸出 `Q0N_questions.csv`（學生編號、提問句、分類）。
 
@@ -107,13 +115,17 @@ QUESTION_LEAD_EN = re.compile(
     r"^(why|how|what|which|who|whom|whose|when|where|is|are|am|was|were|"
     r"can|could|do|does|did|should|would|will|shall|may|might|have|has)\b", re.I)
 
+# 四類提問（2.2）。**dict 的先後順序就是判定優先序**：命中數一樣時，排前面的贏。
 DEFAULT_QUESTION_TYPES = {
-    "概念理解類": ["為什麼", "為何", "原理", "定義", "意義", "差別", "差異", "不同", "關係", "機制", "是什麼", "什麼是", "重要", "有何", "原因", "是否", "是不是", "會不會", "何者", "哪一項", "哪一個", "哪項", "哪一種", "哪裡", "本質", "特性", "區別", "正確", "Why", "What"],
-    "操作應用類": ["怎麼", "如何", "怎樣", "步驟", "公式", "單位", "計算", "方法", "辦法", "應用", "例子", "實驗", "儀器", "操作", "數值", "測量", "分別", "幾次方", "How"],
+    "計算數據類": ["怎麼算", "怎樣算", "如何算", "計算", "算出", "公式", "單位", "數值", "濃度", "莫耳", "pH", "平衡常數", "幾次方", "換算", "多少", "比例", "百分比", "有效數字"],
+    "操作應用類": ["怎麼做", "怎麼用", "怎麼看", "怎麼觀察", "怎麼測量", "怎樣做", "如何做", "如何用", "如何看", "如何觀察", "如何測量", "步驟", "方法", "辦法", "實驗", "儀器", "操作", "應用", "例子", "處理", "How", "如何", "怎麼", "怎樣", "方式"],
+    "延伸探究類": ["未來", "影響", "如果", "會不會", "能不能", "可否", "可不可以", "為什麼不", "為何不", "生活", "產業", "政策", "案例", "比較好", "替代", "永續", "環境衝擊", "風險"],
+    "概念理解類": ["為什麼", "為何", "原理", "定義", "意義", "差別", "差異", "不同", "關係", "機制", "是什麼", "什麼是", "何者", "哪一項", "哪一個", "哪項", "哪一種", "本質", "特性", "區別", "Why", "What", "哪些", "哪種", "哪個", "哪裡", "何種", "何謂"],
 }
-# 後備規則：已判定為提問、但兩類關鍵詞都沒中的句子，含這些字就歸概念理解類，
+# 後備規則：已判定為提問、但四類關鍵詞都沒中的句子，含這些字就歸概念理解類，
 # 其餘才真的算「其他」。（目標：其他 ≤ 總提問的兩成）
 FALLBACK_CONCEPT = ["什麼", "嗎", "為", "why", "甚麼"]
+FALLBACK_TYPE = "概念理解類"
 OTHER_TYPE = "其他"
 
 # 選擇題／測驗題的「回答」是選項文字或「答對／答錯」，全班都一樣，
@@ -265,11 +277,13 @@ def code_sort_key(code):
     return (0, int(m.group(1))) if m else (1, 0, code or "")
 
 
-def pick_concepts(rows, top_n=3, pool=40):
-    """回傳 (concepts, per_student, freq)。
+def pick_concepts(rows, top_n=6, pool=60):
+    """回傳 (concepts, per_student, cfreq, speakers)。
 
-    concepts   = [概念名]，依「提及人數」由多到少（同分比詞頻，再比字典序）
+    concepts   = [概念名]，依「提及人數」由多到少（同分比詞頻，再比字典序），
+                 最多 top_n 個；**候選不足 top_n 時有幾個列幾個，不補空字串**。
     per_student= {學生編號: (token集合, 原文)}
+    speakers   = {概念: 提到它的學生編號集合}（候選池全體，可用來算候選數）
     """
     per_student = {}
     for r in rows:
@@ -360,10 +374,22 @@ def _kw_hits(s, keywords):
     return n
 
 
+def fallback_type():
+    """後備類別：預設「概念理解類」；若使用者自訂的類別名沒有它，就用最後一類。"""
+    if FALLBACK_TYPE in QUESTION_TYPES:
+        return FALLBACK_TYPE
+    names = list(QUESTION_TYPES.keys())
+    return names[-1] if names else OTHER_TYPE
+
+
 def classify_question(s):
-    """規則式兩類分類；兩類都沒中就走後備規則，再沒中才算「其他」。"""
+    """規則式四類分類；四類都沒中就走後備規則，再沒中才算「其他」。
+
+    QUESTION_TYPES 是保序 dict，**先後順序就是判定優先序**：
+    命中數嚴格大於目前最佳才換人，所以命中數相同時排前面的類別勝出。
+    """
     best, best_hits = OTHER_TYPE, 0
-    for name in QUESTION_TYPES:                     # dict 保序，概念理解類在前
+    for name in QUESTION_TYPES:                     # dict 保序 → 順序即優先序
         hits = _kw_hits(s, QUESTION_TYPES[name])
         if hits > best_hits:
             best, best_hits = name, hits
@@ -371,8 +397,7 @@ def classify_question(s):
         return best, best_hits
     if _kw_hits(s, FALLBACK_CONCEPT):
         # 後備：是問句但沒中關鍵詞，含「什麼／嗎／為／Why」→ 概念理解類
-        first = next(iter(QUESTION_TYPES), OTHER_TYPE)
-        return first, 0
+        return fallback_type(), 0
     return OTHER_TYPE, 0
 
 
@@ -423,7 +448,7 @@ def write_questions(path, recs):
 
 
 # ---------------------------------------------------------------- 主流程
-def analyse_dir(work_dir, index=None, top_n=15, top_concepts=3, log=print):
+def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print):
     """讀 work_dir 下的 Q*.csv，寫出 analysis.json、summary.md 與每題兩份 CSV。"""
     meta = {r["題號"]: r for r in (index or [])}
     result = {"資料夾": os.path.basename(os.path.normpath(work_dir)), "題目": []}
@@ -474,10 +499,13 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=3, log=print):
             hit = sum(mat[k][i] for k in keys)
             focus.append({"概念": c, "提及人數": hit, "次數": int(cfreq.get(c, 0)),
                           "覆蓋率": round(hit / n_ans, 3) if n_ans else 0.0})
+        # 覆蓋率三件事：至少 1 個、≥3 個、全部（六個）都提到
         any_hit = sum(1 for k in keys if any(mat[k])) if concepts else 0
+        three_hit = sum(1 for k in keys if sum(mat[k]) >= 3) if concepts else 0
         all_hit = sum(1 for k in keys if concepts and all(mat[k])) if concepts else 0
         overall = round(any_hit / n_ans, 3) if n_ans else 0.0
-        all3 = round(all_hit / n_ans, 3) if n_ans else 0.0
+        three_up = round(three_hit / n_ans, 3) if n_ans else 0.0
+        all_cov = round(all_hit / n_ans, 3) if n_ans else 0.0
 
         # ---- 提問抽取與分類
         qrecs, qstats = extract_questions(valid_rows)
@@ -540,8 +568,10 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=3, log=print):
             "TOP詞": freq.most_common(top_n),
             "TOP詞明細": top_rows,
             "重點概念": focus,
+            "候選概念數": len(cspk),
             "整體覆蓋率": overall,
-            "三個都提到比例": all3,
+            "提到三個以上比例": three_up,
+            "全部提到比例": all_cov,
             "概念矩陣檔": cm_name,
             "概念矩陣": {k: mat[k] for k in keys},
             "提問統計": [{"類別": name, **qstats[name]} for name in QUESTION_TYPES],
@@ -555,10 +585,12 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=3, log=print):
         log(f"  {qno} 原始 {len(rows)} 列 → 有效 {sum(len(v) for v in per_sub.values())} 列"
             f"（開放文字 {len(texts)} 列／{n_ans} 人），子題 {len(subs)}")
         if concepts:
-            log(f"       三個重點 = " +
+            log(f"       {len(concepts)} 個重點 = " +
                 "、".join(f"{d['概念']}({d['提及人數']}人/{round(d['覆蓋率'] * 100)}%)"
                          for d in focus) +
-                f"；整體覆蓋率 {round(overall * 100)}%；三個都提到 {round(all3 * 100)}%")
+                f"；整體覆蓋率 {round(overall * 100)}%；"
+                f"提到三個以上 {round(three_up * 100)}%；"
+                f"全部提到 {round(all_cov * 100)}%")
         else:
             log("       本題無開放文字作答（選擇題／測驗型），不做概念矩陣與文字雲。")
         log(f"       提問 {len(qrecs)} 則／{len({x['學生編號'] for x in qrecs})} 人：" +
@@ -579,25 +611,27 @@ def write_outputs(result, work_dir, course_name="", week_label=""):
          f"- 題數：{len(result['題目'])}",
          "",
          "## 各題作答率與概念覆蓋率", "",
-         "| 題號 | 題目 | 作答/全班 | 作答率 | 整體覆蓋率 | 三個都提到 | 提問數 |",
-         "|---|---|---|---|---|---|---|"]
+         "| 題號 | 題目 | 作答/全班 | 作答率 | 整體覆蓋率 | 提到 ≥3 個 | 六個都提到 | 提問數 |",
+         "|---|---|---|---|---|---|---|---|"]
     for q in result["題目"]:
         L.append(f"| {q['題號']} | {q['題目']} | {q['作答人數']}/{q['全班人數']} | "
                  f"{q['作答率']}% | {round(q['整體覆蓋率'] * 100, 1)}% | "
-                 f"{round(q['三個都提到比例'] * 100, 1)}% | {q['提問總數']} |")
+                 f"{round(q.get('提到三個以上比例', 0) * 100, 1)}% | "
+                 f"{round(q.get('全部提到比例', 0) * 100, 1)}% | {q['提問總數']} |")
     L += ["", "## 全班最常出現重點 TOP10", ""]
     for i, (w, c) in enumerate(result["全班重點TOP10"], 1):
         L.append(f"{i}. {w}（{c} 次）")
-    L += ["", "## 各題三個重點與提問分類", ""]
+    L += ["", "## 各題六個重點與四類提問", ""]
     for q in result["題目"]:
         L.append(f"### {q['題號']}　{q['題目']}")
         if q["重點概念"]:
-            L.append("- 三個重點（提及人數／覆蓋率）：" +
+            L.append(f"- 六個重點（提及人數／覆蓋率，實際 {len(q['重點概念'])} 個）：" +
                      "、".join(f"{d['概念']} {d['提及人數']} 人（{round(d['覆蓋率'] * 100, 1)}%）"
                               for d in q["重點概念"]))
             L.append(f"- 整體覆蓋率（至少提到 1 個重點）：{round(q['整體覆蓋率'] * 100, 1)}%；"
-                     f"三個都提到：{round(q['三個都提到比例'] * 100, 1)}%")
-            L.append(f"- 概念矩陣：`{q['概念矩陣檔']}`")
+                     f"提到 ≥3 個重點：{round(q.get('提到三個以上比例', 0) * 100, 1)}%；"
+                     f"六個都提到：{round(q.get('全部提到比例', 0) * 100, 1)}%")
+            L.append(f"- 概念矩陣：`{q['概念矩陣檔']}`（{len(q['重點概念'])} 個概念欄）")
         else:
             L.append("- 本題沒有開放文字作答（選擇題／測驗型），不做概念矩陣。")
         for t in q["提問統計"]:
