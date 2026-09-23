@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-analyze.py — 吃某週資料夾內的 Q*.csv，產出每題分析。（2.2）
+analyze.py — 吃某週資料夾內的 Q*.csv，產出每題分析。（2.3）
+
+2.3 的改變：**斷詞品質**。關鍵字限制 2–6 個中文字、加上詞性過濾（只留內容詞），
+並擴充停用詞（題幹用語「下列／何者／關於／請問／同學」等與客套語）。
+白名單（內建專有名詞、config 的 user_words／synonyms／keep_short）不受長度與詞性限制。
 
 2.2 的改變：三個重點 → **六個重點**、兩類提問 → **四類提問**。
 
@@ -42,8 +46,10 @@ import csv
 import json
 import glob
 from collections import Counter, defaultdict
+from functools import lru_cache
 
 import jieba
+import jieba.posseg as pseg
 
 # ---------------------------------------------------------------- 內建詞典
 BASE_USER_WORDS = [
@@ -59,6 +65,16 @@ BASE_USER_WORDS = [
     "生成式AI", "人工智慧", "提示詞", "查證", "幻覺", "文獻回顧",
     "ChatGPT", "Gemini", "Copilot", "Claude", "NotebookLM", "Perplexity",
     "學習金字塔", "主動學習", "被動學習", "小組討論", "動手做",
+    # 2.3 補：化學操作動詞。jieba 內建詞典會把「中和」切成「中／和」、
+    # 「還原」切成「還／原」（副詞），加進自訂詞才切得對，也才會進白名單。
+    "稀釋", "中和", "酸鹼中和", "還原", "氧化", "滴定", "過濾", "沉澱", "結晶",
+    "萃取", "蒸餾", "溶解", "中和反應", "氧化劑", "還原劑",
+    # 2.3 補：反覆出現的學科複合名詞。pseg 的 HMM 會視上下文把它們切開
+    # （例如「溶劑與反應物」被切成 反應／物），加進自訂詞才會固定成一個概念。
+    "反應物", "生成物", "產物", "化學產品", "化學反應", "化學物質", "有機溶劑",
+    "輔助物質", "事故預防", "反應條件", "常溫常壓", "副產物", "分解性",
+    "官能基團", "化合物", "有機化合物", "無機化合物", "分子結構", "電子組態",
+    "週期表", "元素週期表", "莫耳數", "濃度", "溶液", "溶質", "水溶液",
 ]
 
 BASE_STOPWORDS = set("""
@@ -74,11 +90,47 @@ a b c d e f 1 2 3 4 5 6 7 8 9 0 無 沒 不 要 想 做 看 用 說 好 多 少 
 開始 影響 減少 想到 提到 變成 用在 一定 大家 重要 有效 印象 深刻 最多 一直 地方
 情形 樣子 之類 有關 相關 直接 常常 幫我 拿來 看到 聽到 發現 注意 特別 完全 到底
 不要 就是 一開始 很多 有些 盡量 造成 用來 這一項 不如 出來 起來 下來 過來 很難
+""".split()) | set("""
+下列 下述 上述 何者 關於 請問 選項 正確 錯誤 敘述 說明 題目 本題 試問 請 答案
+作答 回答 助教 課堂 這題 那題 一題 這一題 那一題 第一題 請選出 是非 單選 多選
+填空 測驗 隨堂 作業
+""".split()) | set("""
+心得 回饋 謝謝 感謝 辛苦 大概 也許 或許 一點 一些 情況 狀況 過程 想法 學到 接著
+""".split()) | set("""
+這次 本週 老師說
 """.split())
+# ↑ 第 2 組 = 題幹／測驗用語（2.3 新增）；第 3 組 = 客套／模糊語（2.3 新增）；
+#   第 4 組 = 課程語境常見贅詞（2.3 新增，原本放在 config.json 的 stopwords_extra）。
+# ⚠ 學科概念詞（水質／濃度／原理／實驗／方法／方式…）**不可**加進停用詞。
+#   其中「方法」「方式」自 2.0 起就在第 1 組，維持原狀不動。
 
 # 學生常把題目代號寫在答案開頭（1a、C2、3.、(1)…），這些 token 會污染文字雲
 NUMBERING = re.compile(r"^[0-9A-Za-z.]{1,4}$")
 BASE_KEEP_SHORT = {"AI", "pH", "CO2", "UV", "DNA", "6R", "CFC", "HFC", "GPT", "PM"}
+
+# ---------------------------------------------------------------- 2.3 斷詞品質
+# 長度：中文詞保留 2–6 個「中文字」；純英文詞放寬到 12（ChatGPT、NotebookLM…）。
+# 中英混合詞（生成式AI）以中文字數計長度。白名單（ALWAYS_KEEP）完全不受長度限制。
+DEFAULT_MIN_WORD_LEN = 2
+DEFAULT_MAX_WORD_LEN = 6
+MAX_EN_WORD_LEN = 12
+EN_WORD = re.compile(r"^[A-Za-z][A-Za-z0-9+\-]*$")
+CJK_CHAR = re.compile(r"[㐀-䶿一-鿿豈-﫿]")
+
+# 詞性過濾：只留「內容詞」。可被 config 的 keep_pos 覆寫。
+#   n/ns/nt/nz/nl/ng 名詞類、vn/v/vd/vg 動詞類（「稀釋」「中和」「氧化」「還原」都是動詞，
+#   泛用動詞如「覺得／認為／使用／進行」靠 BASE_STOPWORDS 擋）、a/ad/an/ag 形容詞類、
+#   i 成語、j 簡稱、l 習用語、s 處所、t 時間、b 區別詞、eng 英文、x 未知（自訂詞多半是 x）。
+# **刻意不收 nr（人名）**：學生姓名若漏遮罩會被當成概念，這是隱私風險。
+# 明確排除：r 代詞、p 介詞、c 連詞、u 助詞、d 副詞、y 語氣、e 嘆詞、o 擬聲、
+#           m 數詞、q 量詞、f 方位、h/k 前後綴、w 標點、z 狀態詞。
+KEEP_POS = {
+    "n", "ns", "nt", "nz", "nl", "ng",
+    "vn", "v", "vd", "vg",
+    "a", "ad", "an", "ag",
+    "i", "j", "l", "s", "t", "b",
+    "eng", "x",
+}
 
 # 大小寫歸一：ai / Ai / chatgpt 併成同一個詞再計頻
 CANON = {"ai": "AI", "Ai": "AI", "ph": "pH", "PH": "pH", "6r": "6R", "co2": "CO2",
@@ -141,13 +193,28 @@ STOPWORDS = set(BASE_STOPWORDS)
 KEEP_SHORT = set(BASE_KEEP_SHORT)
 SYNONYMS = {}
 QUESTION_TYPES = dict(DEFAULT_QUESTION_TYPES)
+ALWAYS_KEEP = set()                   # 2.3：白名單，不受長度與詞性限制
+POS_KEEP = set(KEEP_POS)              # 2.3：實際生效的詞性集合
+MIN_LEN = DEFAULT_MIN_WORD_LEN
+MAX_LEN = DEFAULT_MAX_WORD_LEN
 _LOADED = False
 
 
 def load_dict(user_words=None, stopwords_extra=None, keep_short=None,
-              synonyms=None, question_types=None):
-    """把課程自訂詞灌進 jieba，並合併停用詞／短詞白名單／同義詞／提問關鍵詞。"""
+              synonyms=None, question_types=None,
+              min_word_len=None, max_word_len=None, keep_pos=None,
+              stopwords_remove=None):
+    """把課程自訂詞灌進 jieba，並合併停用詞／短詞白名單／同義詞／提問關鍵詞。
+
+    2.3 另外算好三件事：
+      - STOPWORDS = (內建 | stopwords_extra) - stopwords_remove
+        （stopwords_remove 讓 TA 把內建停用詞拿掉，例如某課程真的要分析「同學」互動）
+      - ALWAYS_KEEP = 內建專有名詞 | user_words | synonyms 正式名與同義詞 | KEEP_SHORT
+      - POS_KEEP／MIN_LEN／MAX_LEN
+    因為這些都會改變 tokens() 的結果，最後一定要清掉斷詞快取。
+    """
     global STOPWORDS, KEEP_SHORT, SYNONYMS, QUESTION_TYPES, _LOADED
+    global ALWAYS_KEEP, POS_KEEP, MIN_LEN, MAX_LEN
     for w in list(BASE_USER_WORDS) + list(user_words or []):
         if w:
             jieba.add_word(w, freq=100000)
@@ -156,7 +223,8 @@ def load_dict(user_words=None, stopwords_extra=None, keep_short=None,
         for s in syns or []:
             if s:
                 jieba.add_word(s, freq=100000)
-    STOPWORDS = set(BASE_STOPWORDS) | set(stopwords_extra or [])
+    STOPWORDS = (set(BASE_STOPWORDS) | set(stopwords_extra or [])) \
+        - set(stopwords_remove or [])
     KEEP_SHORT = set(BASE_KEEP_SHORT) | set(keep_short or [])
     SYNONYMS = {k: list(v or []) for k, v in (synonyms or {}).items()}
     qt = {k: list(v) for k, v in DEFAULT_QUESTION_TYPES.items()}
@@ -164,7 +232,18 @@ def load_dict(user_words=None, stopwords_extra=None, keep_short=None,
         if v:
             qt[k] = list(v)
     QUESTION_TYPES = qt
+
+    keep = set(BASE_USER_WORDS) | set(user_words or []) | set(KEEP_SHORT)
+    for c, syns in SYNONYMS.items():
+        keep.add(c)
+        keep.update(s for s in syns if s)
+    ALWAYS_KEEP = {w for w in keep if w}
+    POS_KEEP = {str(p).strip() for p in (keep_pos or []) if str(p).strip()} \
+        or set(KEEP_POS)
+    MIN_LEN = int(min_word_len) if min_word_len else DEFAULT_MIN_WORD_LEN
+    MAX_LEN = int(max_word_len) if max_word_len else DEFAULT_MAX_WORD_LEN
     _LOADED = True
+    _tokens_cached.cache_clear()       # 設定變了，舊的斷詞結果一律作廢
 
 
 def clean(t):
@@ -181,23 +260,57 @@ def is_valid(t):
     return s not in PLACEHOLDER
 
 
-def tokens(t):
-    if not _LOADED:
-        load_dict()
+def zh_len(w):
+    """詞長＝中文字數；沒有中文字時回 0（交給英文規則判斷）。"""
+    return len(CJK_CHAR.findall(w))
+
+
+def len_ok(w):
+    """2.3 長度規則：中文（含中英混合）看中文字數 MIN_LEN–MAX_LEN；
+    純英文詞放寬到 2–MAX_EN_WORD_LEN；其餘（純數字、符號）一律不要。"""
+    n = zh_len(w)
+    if n:
+        return MIN_LEN <= n <= MAX_LEN
+    if EN_WORD.match(w):
+        return 2 <= len(w) <= MAX_EN_WORD_LEN
+    return False
+
+
+def pos_ok(flag):
+    """2.3 詞性規則：只留內建（或 config 指定）的內容詞詞性。"""
+    return str(flag or "x") in POS_KEEP
+
+
+@lru_cache(maxsize=4096)
+def _tokens_cached(t):
+    """真正的斷詞＋過濾。pseg.cut 比 jieba.cut 慢，而同一段文字會被
+    每題詞頻、每人 token 集合、概念矩陣重複切好幾次，所以在這裡做快取。
+    載入設定（load_dict）時會清掉。"""
     out = []
-    for w in jieba.cut(t):
+    for w, flag in pseg.cut(t):
         w = w.strip()
         if not w or PUNCT_ONLY.match(w):
             continue
         w = CANON.get(w, w)
         if w in STOPWORDS or w.lower() in STOPWORDS:
             continue
-        if len(w) < 2 and not re.match(r"^[A-Za-z]{2,}$", w):
+        if w in ALWAYS_KEEP:            # 白名單：長度、詞性、題號樣式都不管
+            out.append(w)
             continue
         if NUMBERING.match(w) and w not in KEEP_SHORT:
             continue
+        if not len_ok(w):
+            continue
+        if not pos_ok(flag):
+            continue
         out.append(w)
-    return out
+    return tuple(out)
+
+
+def tokens(t):
+    if not _LOADED:
+        load_dict()
+    return list(_tokens_cached(str(t or "")))
 
 
 def freq_of(texts):

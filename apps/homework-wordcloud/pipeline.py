@@ -39,7 +39,7 @@ import datetime as dt
 
 APP_NAME = "HomeworkWordCloud"
 APP_TITLE = "學生作業文字雲"
-VERSION = "2.2.1"
+VERSION = "2.3.0"
 
 # --check-privacy 掃描時要看的純文字副檔名
 TEXT_EXT = {".csv", ".json", ".md", ".txt"}
@@ -107,30 +107,47 @@ DEFAULTS = {
     "min_words_for_cloud": 5, "input_dir": "", "output_dir": "",
     "codebook_path": "",              # 2.1：上次用的「原始名單或學生編號對照表」
     "config_version": 0.0,            # 2.2：設定檔格式版本，用來做一次性遷移
+    # ---- 2.3 斷詞品質
+    "min_word_len": 2,                # 關鍵字最少幾個中文字
+    "max_word_len": 6,                # 關鍵字最多幾個中文字（白名單不受限）
+    "keep_pos": [],                   # 保留的詞性；[] = 用內建 KEEP_POS
+    "stopwords_remove": [],           # 要「拿掉」的內建停用詞（例如想分析「同學」）
 }
 
-CONFIG_VERSION = 2.2                  # 六個重點＋四類提問
+CONFIG_VERSION = 2.3                  # 2–6 字關鍵字＋詞性過濾＋停用詞擴充
+_V23_KEYS = ("min_word_len", "max_word_len", "keep_pos", "stopwords_remove")
 
 
 def _migrate_user_cfg(cfg, user_raw, log=None):
-    """2.2 一次性遷移：舊的使用者設定檔會把「3 個重點／兩類提問」蓋回來。
+    """一次性遷移：舊的使用者設定檔會把新版預設蓋回舊值。
 
-    舊版（config_version < 2.2）的 settings.json 存的是 2.1 的預設值，
-    載入順序又排在打包的 config.json 後面，會把 2.2 的新預設整個蓋掉。
-    因此凡是「看得出來是 2.1 留下來的預設值」就換成 2.2 的新預設；
-    使用者自己改過的值（例如刻意設 top_concepts=4、自訂 4 類關鍵詞）保留不動。
+    舊版的 settings.json 存的是當時的預設值，載入順序又排在打包的 config.json
+    後面，會把新預設整個蓋掉。因此凡是「看得出來是舊版留下來的預設值」就換成
+    新預設；使用者自己改過的值（例如刻意設 top_concepts=4）保留不動。
+
+    2.2：3 個重點 → 6 個重點、兩類提問 → 四類提問。
+    2.3：補上 min_word_len／max_word_len／keep_pos／stopwords_remove 四個新鍵。
     """
-    if float(user_raw.get("config_version") or 0) >= CONFIG_VERSION:
+    ver = float(user_raw.get("config_version") or 0)
+    if ver >= CONFIG_VERSION:
         return cfg
-    if int(cfg.get("top_concepts") or 0) == 3:          # 2.1 的預設值
-        cfg["top_concepts"] = DEFAULTS["top_concepts"]
-        if log:
-            log("  [設定升級] 每題重點數 3 → 6（2.2 預設）")
-    qt = cfg.get("question_types") or {}
-    if qt and len(qt) < 4:                              # 2.1 只有兩類
-        cfg["question_types"] = {}                      # 清空 → 用 2.2 的四類預設
-        if log:
-            log("  [設定升級] 提問分類 兩類 → 四類（2.2 預設）")
+    if ver < 2.2:
+        if int(cfg.get("top_concepts") or 0) == 3:      # 2.1 的預設值
+            cfg["top_concepts"] = DEFAULTS["top_concepts"]
+            if log:
+                log("  [設定升級] 每題重點數 3 → 6（2.2 預設）")
+        qt = cfg.get("question_types") or {}
+        if qt and len(qt) < 4:                          # 2.1 只有兩類
+            cfg["question_types"] = {}                  # 清空 → 用 2.2 的四類預設
+            if log:
+                log("  [設定升級] 提問分類 兩類 → 四類（2.2 預設）")
+    if ver < 2.3:
+        missing = [k for k in _V23_KEYS if k not in user_raw]
+        if missing:
+            for k in missing:
+                cfg[k] = DEFAULTS[k]
+            if log:
+                log("  [設定升級] 關鍵字長度 2–6 字＋詞性過濾＋停用詞擴充（2.3 預設）")
     cfg["config_version"] = CONFIG_VERSION
     return cfg
 
@@ -167,7 +184,7 @@ def user_config_path():
 
 def save_config(cfg):
     data = {k: cfg.get(k, v) for k, v in DEFAULTS.items()}
-    data["config_version"] = CONFIG_VERSION          # 存檔就代表已是 2.2 格式
+    data["config_version"] = CONFIG_VERSION          # 存檔就代表已是最新格式
     with open(user_config_path(), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     return user_config_path()
@@ -352,7 +369,12 @@ def run_pipeline(cfg, input_dir, out_dir, week_label, deck_name,
     os.makedirs(out_dir, exist_ok=True)
     init_jieba(log)
     AN.load_dict(cfg.get("user_words"), cfg.get("stopwords_extra"), cfg.get("keep_short"),
-                 synonyms=cfg.get("synonyms"), question_types=cfg.get("question_types"))
+                 synonyms=cfg.get("synonyms"), question_types=cfg.get("question_types"),
+                 min_word_len=cfg.get("min_word_len"), max_word_len=cfg.get("max_word_len"),
+                 keep_pos=cfg.get("keep_pos"), stopwords_remove=cfg.get("stopwords_remove"))
+    log(f"  關鍵字規則：中文 {AN.MIN_LEN}–{AN.MAX_LEN} 字、英文 ≤{AN.MAX_EN_WORD_LEN} 字母，"
+        f"詞性保留 {len(AN.POS_KEEP)} 類，停用詞 {len(AN.STOPWORDS)} 個，"
+        f"白名單 {len(AN.ALWAYS_KEEP)} 個（不受長度與詞性限制）")
 
     from core.mask import normalize_course_code, normalize_semester
     course_code = normalize_course_code(cfg.get("course_code"))
@@ -751,6 +773,84 @@ def _selftest_questions(log):
     return problems
 
 
+def _selftest_tokens(log):
+    """2.3 斷詞規則單元測試（合成句子，無任何真實個資）。
+
+    1. 題幹／客套用語（下列／何者／關於／請問／同學）不可以出現在關鍵字裡
+    2. 所有關鍵字的中文字數都在 min_word_len–max_word_len 之間（白名單除外）
+    3. user_words 的詞就算超過 6 字也要保留
+    4. 代詞／助詞（我們／的／了）不可以出現
+    5. load_dict() 重新呼叫後斷詞快取要清掉（改了停用詞，結果要跟著變）
+    """
+    from core import analyze as AN
+    problems = []
+
+    AN.load_dict()                     # 回到內建預設（不吃使用者 config）
+    texts = [
+        "下列何者正確？關於綠色化學十二原則，請問同學有什麼想法？",
+        "我們覺得生成式AI的提示詞很重要，pH 值也要會看。",
+        "實驗時要先稀釋再中和，接著觀察氧化還原反應的顏色變化。",
+        "這一題的答案我寫在心得裡，謝謝老師的說明。",
+    ]
+    toks = []
+    for t in texts:
+        toks += AN.tokens(t)
+
+    banned = ["下列", "何者", "關於", "請問", "同學"]
+    for b in banned:
+        if b in toks:
+            problems.append(f"停用詞「{b}」仍出現在關鍵字裡")
+    for p in ["我們", "的", "了", "這樣", "可以"]:
+        if p in toks:
+            problems.append(f"代詞／助詞「{p}」仍出現在關鍵字裡")
+
+    bad_len = [w for w in toks
+               if w not in AN.ALWAYS_KEEP
+               and AN.zh_len(w) and not (AN.MIN_LEN <= AN.zh_len(w) <= AN.MAX_LEN)]
+    if bad_len:
+        problems.append(f"這些關鍵字的中文字數不在 {AN.MIN_LEN}–{AN.MAX_LEN} 之間："
+                        f"{sorted(set(bad_len))}")
+
+    # 白名單超長詞：內建的「綠色化學十二原則」（8 字）要留著
+    if "綠色化學十二原則" not in toks:
+        problems.append("白名單的長詞「綠色化學十二原則」被長度規則砍掉了")
+    # 化學動詞（v）要留下來
+    for v in ("稀釋", "中和", "氧化還原"):
+        if v not in toks:
+            problems.append(f"化學操作詞「{v}」沒有被保留（詞性過濾把動詞砍掉了？）")
+    # nr（人名）不得列入保留詞性——學生姓名漏遮罩時的隱私防線
+    if "nr" in AN.KEEP_POS or "nr" in AN.POS_KEEP:
+        problems.append("KEEP_POS 不可以包含 nr（人名），會把漏遮罩的學生姓名當成概念")
+
+    # user_words 的超長詞（> 6 字）要保留
+    long_word = "一個超過六個字的專有名詞"
+    AN.load_dict(user_words=[long_word])
+    if long_word not in AN.tokens(f"我們在報告裡討論了{long_word}的應用。"):
+        problems.append(f"user_words 的長詞「{long_word}」沒有被保留")
+
+    # 快取有沒有跟著 load_dict 清掉：改停用詞，同一段文字結果要不一樣
+    probe = "原子經濟性和廢棄物減量都很重要"
+    AN.load_dict()
+    before = AN.tokens(probe)
+    AN.load_dict(stopwords_extra=["原子經濟性"])
+    after = AN.tokens(probe)
+    if "原子經濟性" not in before:
+        problems.append("快取測試的基準有問題：預設沒有切出「原子經濟性」")
+    if "原子經濟性" in after:
+        problems.append("load_dict() 之後斷詞快取沒有清掉（改了停用詞結果卻沒變）")
+    # stopwords_remove：把剛加的停用詞再拿掉，應該又回來
+    AN.load_dict(stopwords_extra=["原子經濟性"], stopwords_remove=["原子經濟性"])
+    if "原子經濟性" not in AN.tokens(probe):
+        problems.append("stopwords_remove 沒有把停用詞拿掉")
+
+    AN.load_dict()                     # 收尾：恢復內建預設
+    log(f"  斷詞規則（2.3）：{len(texts)} 句合成文字 → {len(toks)} 個關鍵字，"
+        f"長度 {AN.MIN_LEN}–{AN.MAX_LEN} 字、詞性 {len(AN.POS_KEEP)} 類、"
+        f"停用詞 {len(AN.STOPWORDS)} 個，錯誤 {len(problems)} 個")
+    log(f"       範例關鍵字：{'、'.join(dict.fromkeys(toks))}")
+    return problems
+
+
 def _selftest_compat(tmp, cfg, log):
     """向下相容檢查：直接餵一份「原始 Zuvio 匯出」格式（學號是 int、姓名沒遮罩），
     確認程式會自己補學生編號、把學號改成 O、把自由文字裡的同學姓名換成編號。"""
@@ -1092,6 +1192,7 @@ def selftest(log=print, keep=False):
       6. 文字雲 ≥ 3 張
       7. 每一頁都有備忘稿逐字稿，且 ≤ 350 字
       7b.**2.2**：四類提問的分類單元測試（每類 ≥3 個問句＋陳述句干擾，其他 ≤20%）
+      7c.**2.3**：斷詞規則單元測試（2–6 字、詞性過濾、停用詞、白名單、快取清除）
       8. 向下相容（原始 Zuvio 匯出格式）
       9. **2.1 名單流程**：PDF／Excel 名單解析、固定編號、兩題同人同號、
          名單外作答者 101 起且回寫對照表、全班人數＝名單人數、
@@ -1230,6 +1331,15 @@ def selftest(log=print, keep=False):
         log("")
         log("提問規則檢查")
         problems += _selftest_questions(log)
+
+        # ---- 6c. 2.3：斷詞規則（長度／詞性／停用詞／白名單／快取）
+        log("")
+        log("斷詞規則檢查（2.3）")
+        try:
+            problems += _selftest_tokens(log)
+        except Exception as e:
+            problems.append(f"斷詞規則檢查失敗：{e}")
+            log(traceback.format_exc())
 
         # ---- 7. 隱私
         hits = check_privacy(out_dir, log=log)

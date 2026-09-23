@@ -69,6 +69,10 @@ datas.append((os.path.join(HERE, 'docx_parts.keep'), os.path.join('docx', 'parts
 hiddenimports = [
     'jieba', 'jieba.finalseg', 'jieba.finalseg.prob_start',
     'jieba.finalseg.prob_trans', 'jieba.finalseg.prob_emit',
+    # 2.3：詞性標註（jieba.posseg）。機率表是在函式裡才 import 的，
+    # PyInstaller 掃不到，要手動列出來，否則打包後 pseg.cut() 會 ImportError。
+    'jieba.posseg', 'jieba.posseg.viterbi', 'jieba.posseg.char_state_tab',
+    'jieba.posseg.prob_start', 'jieba.posseg.prob_trans', 'jieba.posseg.prob_emit',
     'wordcloud', 'wordcloud.query_integral_image',
     'PIL.Image', 'PIL.ImageDraw', 'PIL.ImageFont', 'PIL.ImageColor',
     'numpy', 'openpyxl', 'pptx',
@@ -138,7 +142,7 @@ if sys.platform == 'darwin':
         info_plist={
             'CFBundleName': 'HomeworkWordCloud',
             'CFBundleDisplayName': '學生作業文字雲',
-            'CFBundleShortVersionString': '2.2.1',
+            'CFBundleShortVersionString': '2.3.0',
             'NSHighResolutionCapable': True,
         },
     )

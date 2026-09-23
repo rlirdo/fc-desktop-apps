@@ -1,5 +1,5 @@
 {
-  "config_version": 2.2,
+  "config_version": 2.3,
   "course_name": "環境化學",
   "teacher": "○○○ 老師",
   "ta_name": "○○○ 教學助理",
@@ -13,6 +13,10 @@
   "min_words_for_cloud": 5,
   "top_concepts": 6,
   "appendix_matrix": true,
+  "min_word_len": 2,
+  "max_word_len": 6,
+  "keep_pos": [],
+  "stopwords_remove": [],
   "user_words": [
     "綠色化學",
     "十二原則",
@@ -146,12 +150,7 @@
       "何謂"
     ]
   },
-  "stopwords_extra": [
-    "這次",
-    "這題",
-    "本週",
-    "老師說"
-  ],
+  "stopwords_extra": [],
   "keep_short": [
     "AI",
     "pH",
