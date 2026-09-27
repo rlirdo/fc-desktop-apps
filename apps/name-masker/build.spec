@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec — 姓名遮罩與學生編號 NameMasker 2.2
+"""PyInstaller spec — 姓名遮罩與學生編號 NameMasker 2.3
 
 打包：
     pyinstaller build.spec
@@ -101,7 +101,7 @@ if IS_MAC:
         info_plist={
             "CFBundleName": "NameMasker",
             "CFBundleDisplayName": "姓名遮罩與學生編號",
-            "CFBundleShortVersionString": "2.2.0",
+            "CFBundleShortVersionString": "2.3.0",
             "NSHighResolutionCapable": True,
         },
     )

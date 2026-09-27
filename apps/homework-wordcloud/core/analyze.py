@@ -659,6 +659,11 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print):
         m = meta.get(qno, {})
         answered = m.get("作答人數") or len(students)
         klass = m.get("全班人數") or len(students)
+        # 2.4：分組題的作答率以「組數」為分母；0 人作答的題目照樣進 analysis.json
+        is_group = bool(m.get("分組"))
+        n_groups = int(m.get("組數") or 0)
+        denom = (n_groups or answered) if is_group else klass
+        no_answer = answered == 0 and not rows
         spk = speakers_by_word(valid_rows)
         top_rows = [{"詞": w, "次數": c, "提及人數": spk.get(w, 0)}
                     for w, c in freq.most_common(top_n)]
@@ -670,7 +675,15 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print):
             "來源檔": m.get("來源檔", ""),
             "作答人數": answered,
             "全班人數": klass,
-            "作答率": round(answered * 100.0 / max(klass, 1), 1),
+            "作答率": round(answered * 100.0 / max(denom, 1), 1),
+            "分組": is_group,
+            "組數": n_groups,
+            "作答單位": "組" if is_group else "人",
+            "作答分母": denom,
+            "尚無作答": no_answer,
+            "未作答人數": int(m.get("未作答人數") or 0),
+            "子題清單": [{"子題號": x.get("label", ""), "子題題目": x.get("text", "")}
+                     for x in (m.get("子題") or [])],
             "原始列數": len(rows),
             "有效列數": sum(len(v) for v in per_sub.values()),
             "文字列數": len(texts),
@@ -697,7 +710,10 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print):
         })
         log(f"  {qno} 原始 {len(rows)} 列 → 有效 {sum(len(v) for v in per_sub.values())} 列"
             f"（開放文字 {len(texts)} 列／{n_ans} 人），子題 {len(subs)}")
-        if concepts:
+        if no_answer:
+            log(f"       截止前尚無人作答（0 / {denom} {'組' if is_group else '人'}），"
+                f"子題 {len(m.get('子題') or [])} 個；簡報給一頁「尚無作答」。")
+        elif concepts:
             log(f"       {len(concepts)} 個重點 = " +
                 "、".join(f"{d['概念']}({d['提及人數']}人/{round(d['覆蓋率'] * 100)}%)"
                          for d in focus) +
@@ -727,16 +743,33 @@ def write_outputs(result, work_dir, course_name="", week_label=""):
          "| 題號 | 題目 | 作答/全班 | 作答率 | 整體覆蓋率 | 提到 ≥3 個 | 六個都提到 | 提問數 |",
          "|---|---|---|---|---|---|---|---|"]
     for q in result["題目"]:
-        L.append(f"| {q['題號']} | {q['題目']} | {q['作答人數']}/{q['全班人數']} | "
-                 f"{q['作答率']}% | {round(q['整體覆蓋率'] * 100, 1)}% | "
-                 f"{round(q.get('提到三個以上比例', 0) * 100, 1)}% | "
-                 f"{round(q.get('全部提到比例', 0) * 100, 1)}% | {q['提問總數']} |")
+        unit = q.get("作答單位", "人")
+        denom = q.get("作答分母", q["全班人數"])
+        if q["重點概念"]:
+            cov = (f"{round(q['整體覆蓋率'] * 100, 1)}% | "
+                   f"{round(q.get('提到三個以上比例', 0) * 100, 1)}% | "
+                   f"{round(q.get('全部提到比例', 0) * 100, 1)}%")
+        else:
+            cov = "— | — | —"
+        L.append(f"| {q['題號']} | {q['題目']}"
+                 + ("（尚無作答）" if q.get("尚無作答") else "")
+                 + f" | {q['作答人數']}/{denom} {unit} | {q['作答率']}% | {cov} | "
+                 f"{q['提問總數']} |")
     L += ["", "## 全班最常出現重點 TOP10", ""]
     for i, (w, c) in enumerate(result["全班重點TOP10"], 1):
         L.append(f"{i}. {w}（{c} 次）")
     L += ["", "## 各題六個重點與四類提問", ""]
     for q in result["題目"]:
         L.append(f"### {q['題號']}　{q['題目']}")
+        if q.get("尚無作答"):
+            unit = q.get("作答單位", "人")
+            L.append(f"- 截止前尚無人作答（0 / {q.get('作答分母', q['全班人數'])} {unit}）"
+                     + ("，本題為分組題" if q.get("分組") else "")
+                     + "；本題截止後重跑本週分析即可補齊。")
+            for s in q.get("子題清單") or []:
+                L.append(f"  - {s['子題號']} {str(s['子題題目'])[:60]}")
+            L.append("")
+            continue
         if q["重點概念"]:
             L.append(f"- 六個重點（提及人數／覆蓋率，實際 {len(q['重點概念'])} 個）：" +
                      "、".join(f"{d['概念']} {d['提及人數']} 人（{round(d['覆蓋率'] * 100, 1)}%）"

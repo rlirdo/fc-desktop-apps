@@ -27,6 +27,14 @@ NameMasker 2.0 輸出後是字串 `'OOOOOOOOO'`；本模組一律先 `str()` 再
 同一張 sheet 可能有多達 5 個表頭區塊（例：列 12／62／80／132／184），
 每個區塊都會各自歸到對應的子題。
 
+2.4：
+  * **0 人作答**的匯出（作答明細只有「學號｜姓名」空表頭）照樣回傳 rec
+    （狀態「無有效作答」、作答人數 0、未作答人數、子題清單含 label／text）。
+  * **分組題**（是否分組 = 是；明細表頭 `組別｜作答時間｜總分`、`組別｜作答內容`、
+    `組別｜對O/錯X｜得分`）：一列一組、主鍵＝組別標籤，rec 加 `分組`、`組數`，
+    作答人數＝已作答組數。組別絕不交給編號器（不會被登記成名單外作答者）。
+  * 有「學生編號連結姓名」工作表的檔案視為 NameMasker 輸出（分組題沒有 A 欄可認）。
+
 學生主鍵：**A 欄「學生編號」優先**；沒有才退回 9 碼學號，再退回姓名。
 作答人數 = 不重複學生編號數。
 
@@ -153,12 +161,65 @@ def looks_like_roster_file(grid):
     if not header_rows(grid):
         return False
     for r in grid:
+        # 2.4：0 人作答的作業檔也只有「學號｜姓名」表頭（沒有回答欄），
+        #      但它有 Zuvio 題目中繼列（問題題型／題幹／問題敘述）—— 名冊不會有。
+        if r and r[0] in ("問題題型", "題幹", "問題敘述", "是否分組"):
+            return False
         for c in r:
             if c in ("回答", "作答內容", "答案"):
                 return False
             if c and re.match(r"^第\d+題", c):
                 return False
     return True
+
+
+# ------------------------------------------------------------------ 分組題（2.4）
+GROUP_HEADER = "組別"
+GROUP_RE = re.compile(r"^第\s*\d+\s*組$")
+
+
+def is_group_file(grid):
+    """Zuvio 分組題：中繼列「是否分組 = 是」，或作答明細表頭是「組別｜…」。"""
+    for r in grid[:20]:
+        if len(r) >= 2 and r[0] == "是否分組":
+            return r[1] == "是"
+    return any(r and r[0] == GROUP_HEADER and len(r) > 1 and r[1] for r in grid)
+
+
+def parse_groups(grid):
+    """分組題的組別資訊：回傳 dict(名單組別, 作答列, 作答列索引, 未作答組別)。
+
+    * 分組名單：「分組名單」標題列之後、到空列／「未分組學生」為止，每列 `第NN組｜姓名…`
+      —— 這裡**只取組別標籤**，姓名一律不讀。
+    * 作答明細：`組別｜作答時間｜總分` 表頭之下，每列一組。
+    * 未作答：「未作答學生」下一列橫向列出 `第01組｜第02組｜…`。
+    """
+    roster, rows, rows_i, missing = [], [], [], []
+    for i, r in enumerate(grid):
+        if r and r[0] == "分組名單":
+            for j in range(i + 1, len(grid)):
+                rr = grid[j]
+                if not rr or not rr[0] or rr[0] == "未分組學生":
+                    break
+                if GROUP_RE.match(rr[0]):
+                    roster.append(rr[0])
+            break
+    for i, r in enumerate(grid):
+        if len(r) >= 2 and r[0] == GROUP_HEADER and r[1] == "作答時間":
+            for j in range(i + 1, len(grid)):
+                rr = grid[j]
+                if not rr or not rr[0] or not GROUP_RE.match(rr[0]):
+                    break
+                rows.append(rr)
+                rows_i.append(j)
+            break
+    for i, r in enumerate(grid):
+        if r and r[0] == "未作答學生" and i + 1 < len(grid):
+            nxt = [c for c in grid[i + 1] if c]
+            if nxt and all(GROUP_RE.match(c) for c in nxt):
+                missing = nxt
+            break
+    return {"名單組別": roster, "作答列": rows, "作答列索引": rows_i, "未作答組別": missing}
 
 
 def looks_like_quiz(grid):
@@ -177,7 +238,13 @@ def looks_like_quiz(grid):
 def parse_details(grid):
     """逐子題明細區塊（第N題:題型）。
 
-    回傳 [{label, text, answers:[(學號, 姓名, 回答, 列索引)]}]。
+    回傳 [{label, text, group, answers:[(學號, 姓名, 回答, 列索引)]}]。
+
+    2.4：
+      * 分組題的明細表頭是 `組別｜作答內容` 或 `組別｜對O/錯X｜得分` → group=True，
+        answers 的第 1 個欄位放**組別標籤**（第01組），姓名欄留空。
+      * 找不到表頭（0 人作答時 Zuvio 有時只給題目、不給表頭）或表頭下沒有資料
+        → 仍保留這個子題（answers=[]），0 人作答頁才列得出「本題子題」。
     """
     marks = [i for i, r in enumerate(grid) if r and re.match(r"^第\d+題", r[0] or "")]
     out = []
@@ -186,6 +253,7 @@ def parse_details(grid):
         label = grid[i][0]
         text = ""
         hdr_i = None
+        group = False
         for j in range(i + 1, end):
             r = grid[j]
             if not r:
@@ -195,21 +263,35 @@ def parse_details(grid):
             if r[0] == "學號" and len(r) > 1 and r[1] == "姓名":
                 hdr_i = j
                 break
+            if r[0] == GROUP_HEADER and len(r) > 1 and r[1]:
+                hdr_i, group = j, True
+                break
         if hdr_i is None:
+            out.append({"label": label, "text": text, "group": False, "answers": []})
             continue
         hdr = grid[hdr_i]
-        try:
-            acol = hdr.index("回答")
-        except ValueError:
-            acol = 2
+        acol = next((hdr.index(h) for h in ("回答", "作答內容", "答案") if h in hdr),
+                    1 if group else 2)
         answers = []
         for j in range(hdr_i + 1, end):
             r = grid[j]
-            if not r or not r[0] or r[0] == "學號":
+            if not r or not r[0] or r[0] in ("學號", GROUP_HEADER):
+                break
+            if group and not GROUP_RE.match(r[0]):
                 break
             ans = r[acol] if acol < len(r) else ""
-            answers.append((r[0], r[1] if len(r) > 1 else "", ans, j))
-        out.append({"label": label, "text": text, "answers": answers})
+            answers.append((r[0], "" if group else (r[1] if len(r) > 1 else ""), ans, j))
+        out.append({"label": label, "text": text, "group": group, "answers": answers})
+    return out
+
+
+def parse_desc_subs(grid, start=14):
+    """備援：整份檔沒有「第N題」標記、也沒有任何作答時，用每個「問題敘述」列當一個子題
+    （0 人作答的測驗題匯出：每 6 列一個子題）。回傳 [{label, text}]。"""
+    out = []
+    for r in grid[start:]:
+        if len(r) > 1 and r[0] == "問題敘述" and r[1]:
+            out.append({"label": f"第{len(out) + 1}題", "text": r[1]})
     return out
 
 
@@ -247,7 +329,9 @@ def parse_answer_blocks(grid):
 def parse_summary(grid):
     """上方彙總表。回傳 dict(meta, subs, rows, rows_i, unanswered)。"""
     meta = {}
-    for r in grid[:14]:
+    # 分組題的匯出檔在「是否匿名」之後先列整段「分組名單」，「總分／題幹」會被推到
+    # 第 15 列以後；META_KEYS 都是獨一無二的標籤，掃前 40 列、只取第一次出現即可。
+    for r in grid[:40]:
         if len(r) >= 2 and r[0] in META_KEYS:
             meta.setdefault(r[0], r[1])
 
@@ -260,7 +344,10 @@ def parse_summary(grid):
             hdr_i = i
             break
     if hdr_i is None:
-        return {"meta": meta, "subs": [], "rows": [], "rows_i": [], "unanswered": []}
+        # 2.4：0 人作答的匯出只有「學號｜姓名」空表頭，沒有作答時間欄；
+        #      未作答名單照樣要讀（作答率的分母、學生編號清單都靠它）。
+        return {"meta": meta, "subs": [], "rows": [], "rows_i": [],
+                "unanswered": parse_unanswered(grid, 0)}
     hdr = grid[hdr_i]
 
     subs = []
@@ -288,18 +375,28 @@ def parse_summary(grid):
             rows_i.append(i)
         i += 1
 
-    unanswered = []
-    for j in range(i, len(grid)):
+    return {"meta": meta, "subs": subs, "rows": rows, "rows_i": rows_i,
+            "unanswered": parse_unanswered(grid, i)}
+
+
+def parse_unanswered(grid, start=0):
+    """「未作答學生」區塊：下一列是 `學號｜姓名` 表頭，之後每列一位學生。
+    分組題的未作答區塊是橫向的組別清單（沒有表頭），這裡不算，交給 parse_groups。"""
+    out = []
+    for j in range(start, len(grid)):
         if grid[j] and grid[j][0] == "未作答學生":
+            nxt = grid[j + 1] if j + 1 < len(grid) else []
+            if not (nxt and nxt[0] == "學號"):
+                break
             k = j + 2                      # 跳過 學號|姓名 表頭
-            while k < len(grid) and grid[k] and grid[k][0] and grid[k][0] != "學號":
-                unanswered.append({"學號": grid[k][0],
-                                   "姓名": grid[k][1] if len(grid[k]) > 1 else "",
-                                   "列": k})
+            while (k < len(grid) and grid[k] and grid[k][0] and grid[k][0] != "學號"
+                   and not re.match(r"^第\d+題", grid[k][0])):
+                out.append({"學號": grid[k][0],
+                            "姓名": grid[k][1] if len(grid[k]) > 1 else "",
+                            "列": k})
                 k += 1
             break
-    return {"meta": meta, "subs": subs, "rows": rows, "rows_i": rows_i,
-            "unanswered": unanswered}
+    return out
 
 
 # ------------------------------------------------------------------ 通用 CSV
@@ -362,11 +459,28 @@ def file_has_codes(path):
         if path.lower().endswith(".csv"):
             g = parse_generic_csv(path)
             return bool(g) and any(_clean_code(x.get("學生編號")) for x in g)
+        if has_link_sheet(path):
+            return True
         raw = read_grid(path)
     except Exception:
         return False
     _codes, _grid, has = split_code_column(raw)
     return has
+
+
+def has_link_sheet(path):
+    """活頁簿裡有 NameMasker 產生的「學生編號連結姓名」工作表 → 已經遮罩過。
+
+    2.4：NameMasker 2.3 的「名單比對模式」（分組題）不插 A 欄，只能靠這張表認出來。
+    這裡**只看工作表名稱**，絕不讀它的內容。"""
+    if not path.lower().endswith((".xlsx", ".xlsm")):
+        return False
+    wb = openpyxl.load_workbook(path, read_only=True)
+    try:
+        return any(re.sub(r"\d+$", "", nm.strip()) in LINK_SHEET_NAMES
+                   for nm in wb.sheetnames)
+    finally:
+        wb.close()
 
 
 def scan_inputs(input_dir):
@@ -455,7 +569,9 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
 
     p = parse_summary(grid)
     details = parse_details(grid)
-    if not details and not p["subs"]:
+    group = is_group_file(grid)
+    g = parse_groups(grid) if group else None
+    if not details and not p["subs"] and not group:
         details = parse_answer_blocks(grid)
     is_quiz = looks_like_quiz(grid)
     qtype_meta = p["meta"].get("問題題型", "")
@@ -464,6 +580,8 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
 
     # 作答時間只在彙總表有 -> 用學號回查
     tmap = {r[0]: (r[2] if len(r) > 2 else "") for r in p["rows"] if r and r[0]}
+    if group:                                  # 分組題：組別｜作答時間｜總分
+        tmap.update({r[0]: (r[1] if len(r) > 1 else "") for r in g["作答列"]})
 
     # ---- 學生編號：A 欄優先；沒有就照對照表（或 2.0 的出現順序）編
     fixed = coder is not None
@@ -474,6 +592,8 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
         for u in p["unanswered"]:
             coder.code_for(u["學號"], u["姓名"])
         for d in details:
+            if d.get("group"):                 # 組別不是人，絕不可登記成名單外作答者
+                continue
             for sid, name, _ans, _i in d["answers"]:
                 coder.code_for(sid, name)
 
@@ -485,7 +605,7 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
     roster = build_roster(
         [r[1] for r in p["rows"] if len(r) > 1],
         [u["姓名"] for u in p["unanswered"]],
-        [x[1] for d in details for x in d["answers"]],
+        [x[1] for d in details if not d.get("group") for x in d["answers"]],
         extra_names,
     )
     rep = build_replacer(roster, coder.name_to_code())
@@ -507,6 +627,12 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
         source = "逐子題明細區塊(第N題)"
         for d in details:
             for sid, name, ans, ri in d["answers"]:
+                if d.get("group"):
+                    # 分組題：一列一組，主鍵＝組別標籤（第01組），學號／姓名欄留空
+                    if ans:
+                        out_rows.append([qno, d["label"], d["text"], sid, "", "",
+                                         tmap.get(sid, ""), mask_in_text(ans, rep)])
+                    continue
                 code = code_at(ri, sid, name)
                 seen_codes.add(code or sid or name)
                 if not ans:
@@ -538,6 +664,11 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
                                  if s["col"] < len(r) and r[s["col"]])}
                      for s in p["subs"]]
 
+    # 2.4：0 人作答而且連「第N題」標記都沒有 → 用「問題敘述」列補出子題清單
+    if not out_rows and not subs_meta:
+        subs_meta = [{"label": x["label"], "text": mask_in_text(x["text"], rep), "作答數": 0}
+                     for x in parse_desc_subs(grid)]
+
     # 這個檔出現過的所有學生編號（作答＋未作答）—— 用來算「全班人數」的共用分母
     file_codes = {c for c in seen_codes if c and c not in NOT_A_NAME}
     for u in p["unanswered"]:
@@ -548,6 +679,16 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
     anon = sum(1 for r in p["rows"] if r and r[0] in ("匿名作答者", "匿名"))
     answered = len({(r[3] or r[4] or r[5]) for r in out_rows if (r[3] or r[4] or r[5])})
     named = len(p["rows"]) - anon
+    n_missing = len(p["unanswered"])
+    n_groups = 0
+    if group:
+        # 分組題：作答人數＝已作答組數；未作答＝未作答組數；另記總組數
+        done = {r[3] for r in out_rows if r[3]} | {r[0] for r in g["作答列"]}
+        n_groups = max(len(set(g["名單組別"])),
+                       len(done | set(g["未作答組別"])))
+        answered = len(done)
+        n_missing = len(g["未作答組別"]) or max(n_groups - answered, 0)
+        named = answered
     rec = {
         "題號": qno,
         "來源檔": os.path.basename(path),
@@ -559,8 +700,10 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
         "作答人數": answered or len(p["rows"]),
         "實名作答": named,
         "匿名作答": anon,
-        "未作答人數": len(p["unanswered"]),
+        "未作答人數": n_missing,
         "全班人數": named + len(p["unanswered"]),
+        "分組": bool(group),
+        "組數": n_groups,
         "學生編號清單": sorted(file_codes),
         "子題數": len(subs_meta),
         "子題": subs_meta,
@@ -619,7 +762,9 @@ def parse_dir(input_dir, out_dir, semester="", course="", log=print, codebook=No
             w.writerows(rows)
         index.append(rec)
         log(f"  {rec['題號']}  {rec.get('題目', '')[:24]} -> {fn}"
-            f"（作答 {rec.get('作答人數', 0)} 人／子題 {rec.get('子題數', 0)}／"
+            f"（作答 {rec.get('作答人數', 0)} {'組' if rec.get('分組') else '人'}"
+            + (f"／共 {rec['組數']} 組" if rec.get("分組") else "")
+            + f"／子題 {rec.get('子題數', 0)}／"
             f"有效 {rec.get('有效作答列數', 0)} 列／學生編號 {rec.get('學生編號數', 0)} 個"
             f"／{rec.get('學生編號來源', '')}）")
     if skipped:
@@ -639,6 +784,10 @@ def parse_dir(input_dir, out_dir, semester="", course="", log=print, codebook=No
     for rec in index:
         rec["全班人數"] = klass or rec.get("全班人數", 0)
         rec["全班人數來源"] = src
+        # 2.4：0 人作答而且檔內沒有未作答名單 → 未作答人數＝全班
+        if (not rec.get("分組") and not rec.get("作答人數")
+                and not rec.get("未作答人數")):
+            rec["未作答人數"] = rec["全班人數"]
         rec.pop("學生編號清單", None)      # 只是中間結果，不寫進 index json
     log(f"  全班人數統一為 {klass} 人（來源：{src}）；所有題頁共用這個分母。")
     return index

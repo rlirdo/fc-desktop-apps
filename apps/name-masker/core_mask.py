@@ -22,6 +22,10 @@ core_mask.py — 姓名遮罩與學生編號（NameMasker 2.1 核心）
      ★ 這張表是「再識別鑰匙」，只能留在自己的電腦，不可上傳、不可外流。
   6. 另存「原檔名02.xlsx」（已存在就 03、04…），**原檔一個位元組都不動**。
 
+2.3：整本活頁簿都沒有「姓名」欄（Zuvio 分組題：作答明細以「組別」為鍵；名單型匯出）時，
+只要有載入名單／對照表，就改成「名單比對模式」：所有工作表的所有儲存格做文字遮罩
+（名單內姓名→學生編號、≥9 碼數字→等長 O、電子郵件→等長 O），A 欄不插學生編號欄。
+
 全程離線，只讀寫本機檔案。需求：Python 3.8+、openpyxl。
 """
 from __future__ import annotations
@@ -43,7 +47,7 @@ try:
 except ImportError:  # pragma: no cover - 封裝後不會發生
     sys.exit("缺少 openpyxl，請先執行：pip install openpyxl")
 
-__version__ = "2.1.0"
+__version__ = "2.3.0"
 
 # --------------------------------------------------------------------------
 # 常數與樣式
@@ -104,9 +108,26 @@ class Report:
     out_roster: int = 0              # 本檔出現的「名單外作答者」人數（101 起）
     codebook_path: str = ""          # 對照表位置
     codebook_written: bool = False   # 本檔是否有新的名單外登記被回寫
+    # --- 2.3：名單比對模式（本檔沒有「姓名」欄：分組題／名單型） ---
+    namelist_mode: bool = False
+
+    def namelist_line(self):
+        return ("本檔沒有姓名欄（分組題／名單型），改以名單比對遮罩全部儲存格："
+                f"姓名 {self.text_replacements} 處、學號 {self.id_masked} 處")
 
     def summary_lines(self):
         """給 GUI／CLI 顯示的摘要（**不含任何姓名**）。"""
+        if self.namelist_mode:
+            L = [self.namelist_line(),
+                 f"涉及名單內學生 {self.students} 位（A 欄不插入學生編號欄）",
+                 f"另遮罩電子郵件 {self.email_masked} 處（每字元改 O，長度不變）",
+                 f"對照表「{LINK_SHEET_TITLE}」{self.link_rows} 筆",
+                 f"輸出檔：{self.dst}"]
+            if self.roster_mode and self.codebook_path:
+                L.append("學生編號對照表：" + self.codebook_path)
+            for n in self.notes:
+                L.append("※ " + n)
+            return L
         L = [
             f"找到 {self.blocks} 個資料區塊（工作表「{self.sheet_title}」）",
             f"編號學生 {self.students} 位　（{self.semester}_{self.course_code}_1 … "
@@ -220,22 +241,29 @@ def replace_names_in_text(text, pairs):
     - 2 字姓名：只在「整段連續中文剛好等於該姓名」時才換，避免把「答對」「原理」
       這類一般詞誤判成人名（測驗題目型匯出的答案欄全是 2 字中文）。
     """
+    new, d = replace_names_detail(text, pairs)
+    return new, d["ids"] + d["emails"] + d["names"]
+
+
+def replace_names_detail(text, pairs):
+    """同 `replace_names_in_text`，但分開回報：
+    (新字串, {"ids": 學號處數, "emails": 郵件處數, "names": 姓名處數, "hit": {姓名: 首見}})。"""
+    d = {"ids": 0, "emails": 0, "names": 0, "hit": []}
     if not isinstance(text, str) or not text:
-        return text, 0
-    hits = 0
+        return text, d
     # 自由文字裡夾帶的學號（≥9 碼數字串，可能與其他字黏在一起，例「4113xxxxx115-1 EC」）
     # 與電子郵件，一律換成等長的 O（2026/09/16 W02 實測：知情同意書/智財題學生會自己打學號）
     def _o(m):
         return "O" * len(m.group(0))
-    text, n1 = DIGIT_RUN_RE.subn(_o, text)
-    text, n2 = EMAIL_IN_TEXT_RE.subn(_o, text)
-    hits += n1 + n2
+    text, d["ids"] = DIGIT_RUN_RE.subn(_o, text)
+    text, d["emails"] = EMAIL_IN_TEXT_RE.subn(_o, text)
     long_pairs = [(n, v) for n, v in pairs if len(n) >= 3]
     short_pairs = dict((n, v) for n, v in pairs if len(n) < 3)
 
     for nm, no in long_pairs:
         if nm in text:
-            hits += text.count(nm)
+            d["names"] += text.count(nm)
+            d["hit"].append(nm)
             text = text.replace(nm, no)
 
     if short_pairs:
@@ -246,11 +274,12 @@ def replace_names_in_text(text, pairs):
                 out_parts.append(text[last:m.start()])
                 out_parts.append(short_pairs[run])
                 last = m.end()
-                hits += 1
+                d["names"] += 1
+                d["hit"].append(run)
         if last:
             out_parts.append(text[last:])
             text = "".join(out_parts)
-    return text, hits
+    return text, d
 
 
 def next_output_path(src, ext=".xlsx"):
@@ -509,6 +538,70 @@ def process_sheet(ws, course, sem, do_mask_names, rep):
     return link_rows
 
 
+# --------------------------------------------------------------------------
+# 2.3：名單比對模式（整本活頁簿都沒有「姓名」欄：分組題、名單型匯出）
+# --------------------------------------------------------------------------
+def _namelist_pairs():
+    """名單比對用的 {姓名: 學生編號} 與 {學生編號: 學號}（皆來自對照表／fixed 字典）。"""
+    if _CODEBOOK is not None:
+        names = dict(_CODEBOOK.all_names())
+        code_sid = {c: s for s, c in _CODEBOOK.roster_ids().items()}
+        for o in getattr(_CODEBOOK, "outsiders", []) or []:
+            if getattr(o, "sid", "") and getattr(o, "code", ""):
+                code_sid.setdefault(o.code, normalize_id(o.sid))
+    else:
+        names = dict(_FIXED_NAMES or {})
+        code_sid = {c: s for s, c in (_FIXED or {}).items()}
+    names = {n.strip(): c for n, c in names.items() if n and n.strip()}
+    return names, code_sid
+
+
+def process_namelist(wb, rep):
+    """把活頁簿**所有工作表的所有儲存格**做文字遮罩（不插 A 欄）：
+    名單內姓名 → 學生編號（整格或文字內）、任何 ≥9 碼數字（含數值型學號）→ 等長 O、
+    電子郵件 → 等長 O。回傳連結表的列 [(學生編號, 姓名, 學號, 郵件, 首次出現列)]。"""
+    name_no, code_sid = _namelist_pairs()
+    pairs = sorted(name_no.items(), key=lambda kv: -len(kv[0]))
+    first_seen = {}          # 姓名 -> 首次出現列
+    rep.namelist_mode = True
+    rep.blocks = 0
+    rep.sheet_title = "、".join(ws.title for ws in wb.worksheets)
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                v = cell.value
+                if v is None or isinstance(v, bool) or is_formula(v):
+                    continue
+                if isinstance(v, (int, float)):
+                    s = normalize_id(v)
+                    if DIGIT_RUN_RE.fullmatch(s):
+                        cell.value = "O" * len(s)
+                        rep.id_masked += 1
+                    continue
+                if not isinstance(v, str):
+                    continue
+                new, d = replace_names_detail(v, pairs)
+                if new != v:
+                    cell.value = new
+                rep.id_masked += d["ids"]
+                rep.email_masked += d["emails"]
+                rep.text_replacements += d["names"]
+                for nm in d["hit"]:
+                    first_seen.setdefault(nm, (wb.worksheets.index(ws), cell.row, cell.column))
+    link_rows = []
+    seen_no = set()
+    for nm, pos in sorted(first_seen.items(), key=lambda kv: kv[1]):
+        no = name_no.get(nm, "")
+        if not no or no in seen_no:
+            continue
+        seen_no.add(no)
+        link_rows.append((no, nm, code_sid.get(no, ""), "", pos[1]))
+    rep.students = len(link_rows)
+    rep.in_roster = len(link_rows)
+    rep.student_numbers = [rec[0] for rec in link_rows]
+    return link_rows
+
+
 def add_link_sheet(wb, link_rows, rep):
     title = LINK_SHEET_TITLE
     i = 2
@@ -632,13 +725,19 @@ def process_workbook(src, course_code, semester, mask_names=True, fixed_codes=No
                 rep.notes.append(f"第 1 個工作表沒有「姓名」欄，改處理「{cand.title}」。")
                 break
     if target is None:
-        raise MaskError(
-            "整個活頁簿都找不到「姓名」欄位。\n"
-            "請確認這是 Zuvio「下載數據」的 xlsx，或名冊的第 1 列有「姓名」標題。")
-    if len(wb.worksheets) > 1:
-        rep.notes.append(f"這個活頁簿有 {len(wb.worksheets)} 張工作表，只處理「{target.title}」，其餘原樣保留。")
-
-    link_rows = process_sheet(target, course, sem, mask_names, rep)
+        # 2.3：分組題（作答明細以「組別」為鍵）、名單型匯出沒有「姓名」欄。
+        # 有載入對照表 → 改用名單比對遮罩全部儲存格；沒有對照表才報錯。
+        if not _namelist_pairs()[0]:
+            raise MaskError(
+                "整個活頁簿都找不到「姓名」欄位。\n"
+                "請確認這是 Zuvio「下載數據」的 xlsx，或名冊的第 1 列有「姓名」標題。\n"
+                "（分組題的匯出檔沒有「姓名」欄：請先載入原始名單／學生編號對照表，"
+                "程式會改用名單比對遮罩全部儲存格。）")
+        link_rows = process_namelist(wb, rep)
+    else:
+        if len(wb.worksheets) > 1:
+            rep.notes.append(f"這個活頁簿有 {len(wb.worksheets)} 張工作表，只處理「{target.title}」，其餘原樣保留。")
+        link_rows = process_sheet(target, course, sem, mask_names, rep)
     add_link_sheet(wb, link_rows, rep)
 
     dst = next_output_path(src, ".xlsx")

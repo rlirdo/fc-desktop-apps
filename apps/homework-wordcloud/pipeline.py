@@ -39,7 +39,7 @@ import datetime as dt
 
 APP_NAME = "HomeworkWordCloud"
 APP_TITLE = "學生作業文字雲"
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 
 # --check-privacy 掃描時要看的純文字副檔名
 TEXT_EXT = {".csv", ".json", ".md", ".txt"}
@@ -1178,6 +1178,254 @@ def _selftest_roster(tmp, cfg, log):
     return problems
 
 
+# ------------------------------------------------------------------ 2.4 0 人作答／分組題
+# 以下全部是**合成資料**（虛構姓名、9900 號段學號），不是真實學生。
+_Z_SUBS = ["步驟2：AI協作時間(寫數字 eg. 30 min ＝ 30)",
+           "步驟2：AI協作(我學會了)三個重點 (1. 2. 3.)",
+           "步驟3：這一週我還想問的問題（可以寫兩題以上，老師會在下一堂課統一回覆）"]
+_Z_GROUP_TEXTS = [
+    "我們這組約在週六上午訪談農友，先確認農藥的施用時間與安全採收期，"
+    "再請農友示範稀釋倍數怎麼算。為什麼有些農藥的安全採收期特別長？",
+    "訪談時間排在週日下午，重點放在農藥殘留檢測與有機驗證的差別，"
+    "我們想知道檢測濃度的單位怎麼換算？如果改用生物防治會不會比較好？",
+]
+
+
+def _xlsx_rows(path, rows, link_rows=None):
+    """把 rows 寫成 xlsx；link_rows 有給就附一張「學生編號連結姓名」（NameMasker 輸出）。"""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "sheet1"
+    for r in rows:
+        ws.append(list(r))
+    if link_rows is not None:
+        ls = wb.create_sheet("學生編號連結姓名")
+        ls.append(["學生編號", "姓名", "學號（原）", "電子郵件（原）", "首次出現列"])
+        for r in link_rows:
+            ls.append(list(r))
+    wb.save(path)
+    wb.close()
+    return path
+
+
+def _zero_personal_rows(people, masked):
+    """個人題、0 人作答（Zuvio 測驗題目匯出）：作答明細只有「學號｜姓名」表頭，
+    未作答學生列出全班，之後每 6 列一個子題。people=[(A 欄, 學號, 姓名)]。"""
+    a = (lambda v: [v]) if masked else (lambda v: [])
+    rows = [a(None) + ["資料夾名稱", "W03 AI協作作業"], a(None) + ["問題題型", "測驗題目"],
+            a(None) + ["是否分組", "否"], a(None) + ["是否匿名", "否"],
+            a(None) + ["總分", 20],
+            a(None) + ["題幹", "W03 AI協作作業 步驟1：打開 notebook "
+                             "https://colab.research.google.com/drive/xxxx 依步驟完成"],
+            [], a(None) + ["平均", "目前無作答紀錄"], [], a(None) + ["分數", "1~20"],
+            a(None) + ["人數", 0], [],
+            a("學生編號") + ["學號", "姓名"], [],
+            a(None) + ["未作答學生"], a("學生編號") + ["學號", "姓名"]]
+    rows += [a(code) + [sid, name] for code, sid, name in people]
+    rows.append([])
+    for i, t in enumerate(_Z_SUBS, 1):
+        rows += [a(None) + [f"第{i}題:簡答題"], a(None) + ["問題敘述", t],
+                 a(None) + ["配分", 5], a(None) + ["平均", "目前無作答紀錄"], [], []]
+    return rows
+
+
+def _group_rows(groups, loners, answers, missing):
+    """分組題：分組名單（第NN組｜組長｜副組長）、未分組學生、組別作答明細與子題明細。
+    answers=[(組別, 作答內容)]；missing=[未作答組別]。"""
+    rows = [["資料夾名稱", "期末行動"], ["問題題型", "題組問答"], ["是否分組", "是"],
+            ["是否匿名", "否"], ["分組名單"]]
+    rows += [[g] + list(ms) for g, ms in groups]
+    rows += [["未分組學生"]] + [[n] for n in loners]
+    rows += [[], ["總分", 10],
+             ["題幹", "[調查] 115-1期末行動_田野學習_農藥議題訪談(小組)請組長或副組長代表填寫"],
+             [], ["平均", "目前無作答紀錄" if not answers else 10], [],
+             ["組別", "作答時間", "總分"]]
+    rows += [[g, "2026-09-25 10:00:00", 10] for g, _t in answers]
+    rows += [[], ["未作答學生"], list(missing), [],
+             ["第1題:簡答題"], ["問題敘述", "請寫下訪談時間與分工，並提出一個想問農友的問題"],
+             ["配分", 10], [], ["組別", "作答內容"]]
+    rows += [[g, t] for g, t in answers]
+    return rows
+
+
+def _selftest_zero_group(tmp, cfg, log, thumbs=False):
+    """2.4：0 人作答的題目也要有一頁、分組題以「組」為作答單位。
+
+    Z1（NameMasker 輸出格式，不需名單）：內建 3 題示範 ＋ 個人題 0 人作答 ＋ 分組題有作答
+        （分組題是 NameMasker 2.3「名單比對模式」的輸出：沒有 A 欄，只有連結表）。
+    Z2（原始 Zuvio 匯出 ＋ 名單）：個人題 0 人作答、分組題 0 人作答、分組題有作答
+        （作答內容夾帶同學真名與學號）→ 名單姓名全部換成學生編號、組別不可被登記成名單外。
+    """
+    from pptx import Presentation
+    from core import deck as DK
+    from core import roster as R
+    problems = []
+
+    # ================= Z1 =================================================
+    z1_in = os.path.join(tmp, "z1_in")
+    os.makedirs(z1_in, exist_ok=True)
+    src = sample_input_dir()
+    for fn in sorted(os.listdir(src)):
+        if fn.lower().endswith(".xlsx"):
+            shutil.copy(os.path.join(src, fn), z1_in)
+    fam = "甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥"
+    people = [(f"115-1_EC_{i}", "O" * 9, f"{fam[i - 1]}O{fam[-i]}") for i in range(1, 23)]
+    secrets = [(f"115-1_EC_{i}", f"{fam[i - 1]}小{fam[-i]}", f"99000{i:04d}", "", 17 + i)
+               for i in range(1, 23)]
+    _xlsx_rows(os.path.join(z1_in, "19990104.xlsx"),
+               _zero_personal_rows(people, masked=True), link_rows=secrets)
+    groups = [("第01組", ("115-1_EC_1", "115-1_EC_2")), ("第02組", ("115-1_EC_3", "115-1_EC_4")),
+              ("第03組", ("115-1_EC_5", "115-1_EC_6"))]
+    _xlsx_rows(os.path.join(z1_in, "19990105.xlsx"),
+               _group_rows(groups, ["115-1_EC_7"],
+                           [("第01組", _Z_GROUP_TEXTS[0].replace("農友", "115-1_EC_2 和農友", 1)),
+                            ("第02組", _Z_GROUP_TEXTS[1])], ["第03組"]),
+               link_rows=secrets[:7])
+
+    z1_cfg = dict(cfg)
+    z1_cfg.setdefault("course_name", "我的課程")
+    z1_out = os.path.join(tmp, "z1_out")
+    try:
+        r = run_pipeline(z1_cfg, z1_in, z1_out, "合成週", "零作答測試.pptx",
+                         thumbs=thumbs, log=lambda *a: None)
+    except PipelineError as e:
+        return [f"Z1（0 人作答＋分組題，NameMasker 輸出）不應被擋：{e}"]
+    qs = r["analysis"]["題目"]
+    by = {q["題號"]: q for q in qs}
+    if len(qs) != 5:
+        problems.append(f"Z1 應有 5 題（含 0 人作答題），實際 {len(qs)}")
+    q4, q5 = by.get("Q04", {}), by.get("Q05", {})
+    if not q4.get("尚無作答") or q4.get("作答人數") != 0 or q4.get("作答率") != 0 \
+            or q4.get("重點概念") != [] or q4.get("提問總數") != 0:
+        problems.append("Q04（0 人作答）應為 尚無作答／作答 0／作答率 0／重點 []／提問 0："
+                        f"{ {k: q4.get(k) for k in ('尚無作答', '作答人數', '作答率', '提問總數')} }")
+    if [x["子題題目"] for x in q4.get("子題清單", [])] != _Z_SUBS:
+        problems.append(f"Q04 子題清單不符：{q4.get('子題清單')}")
+    if q4.get("作答分母") != 22 or q4.get("未作答人數") != 22:
+        problems.append(f"Q04 分母／未作答應為 22，實際 {q4.get('作答分母')}／{q4.get('未作答人數')}")
+    if not q5.get("分組") or q5.get("組數") != 3 or q5.get("作答人數") != 2 \
+            or q5.get("作答單位") != "組" or q5.get("作答率") != 66.7:
+        problems.append("Q05（分組題）應為 分組／3 組／2 組作答／66.7%："
+                        f"{ {k: q5.get(k) for k in ('分組', '組數', '作答人數', '作答率')} }")
+    with open(os.path.join(z1_out, "questions_index.json"), encoding="utf-8") as f:
+        idx = json.load(f)
+    if [x["題號"] for x in idx] != ["Q01", "Q02", "Q03", "Q04", "Q05"]:
+        problems.append(f"questions_index.json 應含 5 題：{[x['題號'] for x in idx]}")
+    elif idx[3].get("狀態") != "無有效作答":
+        problems.append(f"Q04 的狀態應為「無有效作答」，實際 {idx[3].get('狀態')}")
+    with open(os.path.join(z1_out, "summary.md"), encoding="utf-8") as f:
+        md = f.read()
+    if "Q04" not in md or "尚無作答" not in md:
+        problems.append("summary.md 沒有列出 0 人作答的 Q04")
+
+    prs = Presentation(r["pptx"])
+    n_apx = sum(1 for q in qs if q.get("重點概念"))
+    n_apx = min(-(-n_apx // DK.APX_PER_PAGE), DK.APX_MAX_PAGES) if n_apx else 0
+    want_pages = 3 + len(qs) + n_apx
+    if len(prs.slides) != want_pages:
+        problems.append(f"Z1 簡報 {len(prs.slides)} 頁，應為 3 + {len(qs)} 題 + 附錄 {n_apx}")
+    zero_pages = []
+    for i, sl in enumerate(prs.slides, 1):
+        txt = "\n".join(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame)
+        if "截止日前尚無人作答" in txt:
+            zero_pages.append(i)
+            for need in ("0 / 22 人", "本題子題（共 3 個）", "本題截止後重跑本週分析即可補齊"):
+                if need not in txt:
+                    problems.append(f"尚無作答頁缺少「{need}」")
+            note = sl.notes_slide.notes_text_frame.text
+            if not (100 <= len(note) <= 200):
+                problems.append(f"尚無作答頁逐字稿 {len(note)} 字（應 100–200 字）")
+            if any(ln and not ln.endswith(("。", "？", "！")) for ln in note.split("\n")):
+                problems.append("尚無作答頁逐字稿要一句一行")
+    if zero_pages != [2 + 4]:
+        problems.append(f"尚無作答頁應在第 6 頁（Q04），實際 {zero_pages}")
+    ov = "\n".join(sh.text_frame.text for sh in prs.slides[1].shapes if sh.has_text_frame)
+    avg = round(sum(q["作答率"] for q in qs) / len(qs), 1)
+    if f"平均作答率 {avg}%" not in ov:
+        problems.append(f"總覽頁的平均作答率應含 0 人作答題（{avg}%）")
+    if "0 / 22" not in ov or "2 / 3 組" not in ov:
+        problems.append("總覽表應列出 0 人作答題（0 / 22）與分組題（2 / 3 組）")
+    lay = DK.layout_scan(prs)
+    if lay["out_of_bounds"] or lay["overlaps"]:
+        problems.append(f"Z1 版面：出界 {len(lay['out_of_bounds'])}、重疊 {len(lay['overlaps'])}"
+                        f" {(lay['out_of_bounds'] + lay['overlaps'])[:3]}")
+    h1 = check_privacy(z1_out, input_dir=z1_in, log=lambda *a: None)
+    h1 += _link_sheet_leak(z1_in, z1_out, log=lambda *a: None)
+    if h1:
+        problems.append(f"Z1 隱私命中 {h1} 處")
+    log(f"  Z1（NameMasker 輸出）：{len(qs)} 題、{len(prs.slides)} 頁、尚無作答頁第 {zero_pages} 頁、"
+        f"分組題 {q5.get('作答人數')}/{q5.get('組數')} 組、平均作答率 {avg}%、"
+        f"出界 {len(lay['out_of_bounds'])}、重疊 {len(lay['overlaps'])}、隱私命中 {h1}")
+
+    # ================= Z2 =================================================
+    z2_in = os.path.join(tmp, "z2_in")
+    os.makedirs(z2_in, exist_ok=True)
+    st = _R_STUDENTS
+    _xlsx_rows(os.path.join(z2_in, "Z1_個人題0人.xlsx"),
+               _zero_personal_rows([(None, int(sid), nm) for _q, sid, nm, _k in st],
+                                   masked=False))
+    groups2 = [("第01組", (st[0][2], st[1][2])), ("第02組", (st[2][2], st[3][2]))]
+    _xlsx_rows(os.path.join(z2_in, "Z2_分組題0人.xlsx"),
+               _group_rows(groups2, [st[4][2], st[5][2]], [], ["第01組", "第02組"]))
+    _xlsx_rows(os.path.join(z2_in, "Z3_分組題有作答.xlsx"),
+               _group_rows(groups2, [st[4][2]],
+                           [("第01組", f"組長{st[0][2]}聯絡農友，{st[1][2]}記錄（學號{st[1][1]}）。"
+                                     + _Z_GROUP_TEXTS[0]),
+                            ("第02組", f"{st[2][2]}和{st[3][2]}負責訪談。" + _Z_GROUP_TEXTS[1])],
+                           []))
+    rcfg = dict(cfg)
+    rcfg.update({"semester": _R_SEM, "course_code": _R_CRS, "course_name": "合成測試課程"})
+    roster_x = _write_roster_xlsx(os.path.join(tmp, "z2_名單.xlsx"))
+    cb = R.prepare_codebook(roster_x, _R_SEM, _R_CRS, out_dir=os.path.join(tmp, "z2_cb"),
+                            log=lambda *a: None)
+    z2_out = os.path.join(tmp, "z2_out")
+    try:
+        r2 = run_pipeline(rcfg, z2_in, z2_out, "合成週", "零作答原始檔.pptx",
+                          thumbs=False, log=lambda *a: None, codebook=cb)
+    except PipelineError as e:
+        return problems + [f"Z2（原始 Zuvio＋名單）不應被擋：{e}"]
+    qs2 = {q["題號"]: q for q in r2["analysis"]["題目"]}
+    if len(qs2) != 3:
+        problems.append(f"Z2 應有 3 題，實際 {len(qs2)}")
+    z1q, z2q, z3q = qs2.get("Q01", {}), qs2.get("Q02", {}), qs2.get("Q03", {})
+    if not z1q.get("尚無作答") or z1q.get("未作答人數") != len(st) or \
+            len(z1q.get("子題清單", [])) != 3:
+        problems.append(f"Z2 個人題 0 人：尚無作答／未作答 {len(st)}／子題 3 不符")
+    if not z2q.get("尚無作答") or not z2q.get("分組") or z2q.get("作答分母") != 2:
+        problems.append(f"Z2 分組題 0 人：應為尚無作答、分母 2 組，實際 {z2q.get('作答分母')}")
+    if z3q.get("作答人數") != 2 or z3q.get("組數") != 2:
+        problems.append(f"Z2 分組題有作答：應 2/2 組，實際 {z3q.get('作答人數')}/{z3q.get('組數')}")
+    cb_back = R.load_codebook(cb.path)
+    if cb_back.outside:
+        problems.append(f"組別被誤登記成名單外作答者：{len(cb_back.outside)} 筆")
+    import csv as _csv
+    with open(os.path.join(z2_out, "questions_index.json"), encoding="utf-8") as f:
+        z3_csv = next(x["檔名"] for x in json.load(f) if x["題號"] == "Q03")
+    with open(os.path.join(z2_out, z3_csv), encoding="utf-8-sig", newline="") as f:
+        z3rows = list(_csv.DictReader(f))
+    blob = "\n".join(x["作答內容"] for x in z3rows)
+    if f"{_R_SEM}_{_R_CRS}_1" not in blob or f"{_R_SEM}_{_R_CRS}_4" not in blob:
+        problems.append("分組題作答內容裡的同學姓名沒有換成學生編號")
+    h2 = check_privacy(z2_out, input_dir=z2_in, log=lambda *a: None, codebook=cb_back)
+    if h2:
+        problems.append(f"Z2 隱私命中 {h2} 處")
+        check_privacy(z2_out, input_dir=z2_in, log=log, codebook=cb_back)
+    prs2 = Presentation(r2["pptx"])
+    n_zero2 = sum(1 for sl in prs2.slides
+                  if any(sh.has_text_frame and "截止日前尚無人作答" in sh.text_frame.text
+                         for sh in sl.shapes))
+    if n_zero2 != 2:
+        problems.append(f"Z2 應有 2 頁尚無作答頁，實際 {n_zero2}")
+    lay2 = DK.layout_scan(prs2)
+    if lay2["out_of_bounds"] or lay2["overlaps"]:
+        problems.append(f"Z2 版面：出界 {len(lay2['out_of_bounds'])}、重疊 {len(lay2['overlaps'])}")
+    log(f"  Z2（原始 Zuvio＋名單）：{len(qs2)} 題、{len(prs2.slides)} 頁、尚無作答頁 {n_zero2} 頁、"
+        f"分組題 0 人分母 {z2q.get('作答分母')} 組、組別誤登記名單外 {len(cb_back.outside)}、"
+        f"隱私命中 {h2}")
+    return problems
+
+
 def selftest(log=print, keep=False):
     """用內建合成資料（NameMasker 2.0 格式）跑完整流程並驗收。
 
@@ -1197,6 +1445,9 @@ def selftest(log=print, keep=False):
       9. **2.1 名單流程**：PDF／Excel 名單解析、固定編號、兩題同人同號、
          名單外作答者 101 起且回寫對照表、全班人數＝名單人數、
          未給名單被擋、--no-roster 放行、隱私（含對照表真名學號）0 命中
+     10. **2.4 0 人作答／分組題**：0 人作答題進 analysis.json／questions_index.json／
+         summary.md、有自己一頁「尚無作答」、頁數＝3＋題數＋附錄；分組題以「組」為
+         作答單位；原始分組題＋名單時組別不被登記成名單外、作答內容姓名換編號、隱私 0 命中
     """
     from pptx import Presentation
     tmp = tempfile.mkdtemp(prefix="hwwc_selftest_[課程] ")   # 刻意含中括號與空白：回歸測試 glob 跳脫
@@ -1366,6 +1617,15 @@ def selftest(log=print, keep=False):
             problems += _selftest_roster(tmp, cfg, log)
         except Exception as e:
             problems.append(f"名單流程檢查失敗：{e}")
+            log(traceback.format_exc())
+
+        # ---- 10. 2.4 0 人作答頁、分組題
+        log("")
+        log("0 人作答／分組題檢查（2.4）")
+        try:
+            problems += _selftest_zero_group(tmp, cfg, log)
+        except Exception as e:
+            problems.append(f"0 人作答／分組題檢查失敗：{e}")
             log(traceback.format_exc())
 
         log("")
