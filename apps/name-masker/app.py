@@ -40,7 +40,8 @@ import traceback
 
 APP_NAME = "姓名遮罩與學生編號"
 EXE_NAME = "NameMasker"
-VERSION = "2.3.0"
+VERSION = "2.3.1"
+CREDIT = "NDHU 自資系 游豐兆 製作"          # 首頁右下角製作者字樣
 
 DEFAULT_COURSE = "EC"
 DEFAULT_SEMESTER = "115-1"
@@ -1163,9 +1164,13 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
     txt.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
     sb2.pack(side="right", fill="y", padx=(0, 8), pady=8)
 
-    tk.Label(root, text=f"{EXE_NAME} v{VERSION}　｜　也可以把檔案直接拖到本程式的圖示上執行"
+    foot = tk.Frame(root)
+    foot.pack(fill="x", padx=14, pady=(0, 10))
+    tk.Label(foot, text=f"{EXE_NAME} v{VERSION}　｜　也可以把檔案直接拖到本程式的圖示上執行"
                         "（會沿用上次的對照表）　｜　東華大學自然資源與環境學系　仿生與環境工作坊",
-             font=FS, fg="#777777", anchor="w").pack(fill="x", padx=14, pady=(0, 10))
+             font=FS, fg="#777777", anchor="w").pack(side="left")
+    # 2.3.1：首頁右下角標示製作者（使用者要求）
+    tk.Label(foot, text=CREDIT, font=FS, fg="#204a87", anchor="e").pack(side="right")
 
     # ---- 行為 ----
     def log(msg=""):

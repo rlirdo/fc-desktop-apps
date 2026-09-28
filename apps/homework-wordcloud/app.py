@@ -391,8 +391,12 @@ def run_gui():
 
     # ---------------- 狀態列（先占住視窗底部，視窗變小也不會被擠掉）
     v_status = tk.StringVar(value="準備好了。第一次用請先按「跑示範」看看輸出長什麼樣子。")
-    ttk.Label(body, textvariable=v_status, foreground="#065A82", anchor="w"
-              ).pack(side="bottom", fill="x", pady=(6, 0))
+    status_row = ttk.Frame(body)
+    status_row.pack(side="bottom", fill="x", pady=(6, 0))
+    ttk.Label(status_row, textvariable=v_status, foreground="#065A82", anchor="w"
+              ).pack(side="left", fill="x", expand=True)
+    # 2.4.1：首頁右下角標示製作者（使用者要求）
+    ttk.Label(status_row, text=P.CREDIT, foreground="#204a87", anchor="e").pack(side="right")
 
     # ---------------- log
     logf = ttk.LabelFrame(body, text="執行紀錄", padding=6)

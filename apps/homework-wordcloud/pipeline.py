@@ -39,7 +39,8 @@ import datetime as dt
 
 APP_NAME = "HomeworkWordCloud"
 APP_TITLE = "學生作業文字雲"
-VERSION = "2.4.0"
+VERSION = "2.4.1"
+CREDIT = "NDHU 自資系 游豐兆 製作"          # 首頁右下角製作者字樣
 
 # --check-privacy 掃描時要看的純文字副檔名
 TEXT_EXT = {".csv", ".json", ".md", ".txt"}
