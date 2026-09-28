@@ -1158,8 +1158,7 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
     # 2.3.1：底部列先 pack 到視窗底部佔位（否則會被會擴張的「處理結果」框擠出視窗外看不到）
     foot = tk.Frame(root)
     foot.pack(side="bottom", fill="x", padx=14, pady=(0, 10))
-    tk.Label(foot, text=f"{EXE_NAME} v{VERSION}　｜　也可以把檔案直接拖到本程式的圖示上執行"
-                        "（會沿用上次的對照表）　｜　東華大學自然資源與環境學系　仿生與環境工作坊",
+    tk.Label(foot, text=f"{EXE_NAME} v{VERSION}　｜　也可以把檔案直接拖到本程式的圖示上執行（會沿用上次的對照表）",
              font=FS, fg="#777777", anchor="w").pack(side="left")
     tk.Label(foot, text=CREDIT, font=FS, fg="#204a87", anchor="e").pack(side="right")   # 右下角製作者
 
