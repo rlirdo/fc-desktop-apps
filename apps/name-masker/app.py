@@ -1059,7 +1059,7 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
     state = {"cb": None, "roster": cfg.get("roster_path", ""),
              "codebook": cfg.get("codebook_path", ""), "out_dir": None}
 
-    tk.Label(root, text=APP_NAME + "　2.2（先載入名單 → 固定學生編號 → 遮罩）",
+    tk.Label(root, text=APP_NAME + "　2.3（先載入名單 → 固定學生編號 → 遮罩）",
              font=FT, anchor="w").pack(fill="x", padx=14, pady=(10, 0))
     tk.Label(root,
              text="① 先載入這門課的「原始名單」產生固定編號對照表 → "
@@ -1155,6 +1155,14 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
     btn_open.pack(side="left", padx=6)
     tk.Button(bar, text="關於", font=F, width=6, command=lambda: about()).pack(side="right")
 
+    # 2.3.1：底部列先 pack 到視窗底部佔位（否則會被會擴張的「處理結果」框擠出視窗外看不到）
+    foot = tk.Frame(root)
+    foot.pack(side="bottom", fill="x", padx=14, pady=(0, 10))
+    tk.Label(foot, text=f"{EXE_NAME} v{VERSION}　｜　也可以把檔案直接拖到本程式的圖示上執行"
+                        "（會沿用上次的對照表）　｜　東華大學自然資源與環境學系　仿生與環境工作坊",
+             font=FS, fg="#777777", anchor="w").pack(side="left")
+    tk.Label(foot, text=CREDIT, font=FS, fg="#204a87", anchor="e").pack(side="right")   # 右下角製作者
+
     outbox = tk.LabelFrame(root, text=" ③ 處理結果 ", font=FB, fg="#204a87")
     outbox.pack(fill="both", expand=True, padx=14, pady=(0, 6))
     txt = tk.Text(outbox, font=(fam, 10), wrap="word", state="disabled",
@@ -1164,13 +1172,7 @@ def run_gui(preset_files=None, preset=None):  # noqa: C901
     txt.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=8)
     sb2.pack(side="right", fill="y", padx=(0, 8), pady=8)
 
-    foot = tk.Frame(root)
-    foot.pack(fill="x", padx=14, pady=(0, 10))
-    tk.Label(foot, text=f"{EXE_NAME} v{VERSION}　｜　也可以把檔案直接拖到本程式的圖示上執行"
-                        "（會沿用上次的對照表）　｜　東華大學自然資源與環境學系　仿生與環境工作坊",
-             font=FS, fg="#777777", anchor="w").pack(side="left")
-    # 2.3.1：首頁右下角標示製作者（使用者要求）
-    tk.Label(foot, text=CREDIT, font=FS, fg="#204a87", anchor="e").pack(side="right")
+
 
     # ---- 行為 ----
     def log(msg=""):
