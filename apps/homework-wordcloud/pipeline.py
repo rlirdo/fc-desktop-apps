@@ -39,7 +39,7 @@ import datetime as dt
 
 APP_NAME = "HomeworkWordCloud"
 APP_TITLE = "學生作業文字雲"
-VERSION = "2.4.2"
+VERSION = "2.4.3"
 CREDIT = "NDHU 自資系 游豐兆 製作"          # 首頁右下角製作者字樣
 
 # --check-privacy 掃描時要看的純文字副檔名
@@ -510,7 +510,8 @@ def run_week(cfg, input_dir, out_root, week_no=None, thumbs=True, log=print,
                             "請確認「學期起日」，或改用「指定週次」。")
     wfolder, sun, sat = week_folder(n, cfg.get("semester_start"))
     week_label = f"第{DK.cn_week(n)}週（{sun:%Y/%m/%d}–{sat:%m/%d}）"
-    deck_name = f"同學作答分析-第{DK.cn_week(n)}周.pptx"
+    # 2.4.3：檔名固定為「同學作答分析_{學期} {課程縮寫}_W{n}.pptx」（週別不補零：W9、W10）
+    deck_name = f"同學作答分析_{cfg.get('semester', '')} {cfg.get('course_code', '')}_W{n}.pptx"
     in_dir = pick_input_dir(input_dir, wfolder)
     out_dir = os.path.join(os.path.abspath(out_root), wfolder)
 
