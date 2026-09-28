@@ -663,6 +663,14 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print):
         is_group = bool(m.get("分組"))
         n_groups = int(m.get("組數") or 0)
         denom = (n_groups or answered) if is_group else klass
+        # 2.4.2：名單外作答者（編號 ≥ 101）不算進作答率的分子，否則會出現 6/5 人、120% 的荒謬值。
+        #        作答人數仍是「所有作答者」，另給「名單內作答人數」與「名單外作答人數」。
+        def _num(code):
+            mm = re.search(r"_(\d+)$", str(code or ""))
+            return int(mm.group(1)) if mm else 0
+        outside = sum(1 for c in students if _num(c) >= 101)
+        in_roster = max(answered - outside, 0) if not is_group else answered
+        rate_num = min(in_roster, denom) if not is_group else answered
         no_answer = answered == 0 and not rows
         spk = speakers_by_word(valid_rows)
         top_rows = [{"詞": w, "次數": c, "提及人數": spk.get(w, 0)}
@@ -675,7 +683,9 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print):
             "來源檔": m.get("來源檔", ""),
             "作答人數": answered,
             "全班人數": klass,
-            "作答率": round(answered * 100.0 / max(denom, 1), 1),
+            "作答率": round(rate_num * 100.0 / max(denom, 1), 1),
+            "名單內作答人數": in_roster,
+            "名單外作答人數": outside if not is_group else 0,
             "分組": is_group,
             "組數": n_groups,
             "作答單位": "組" if is_group else "人",
