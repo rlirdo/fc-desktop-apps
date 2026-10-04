@@ -4,7 +4,11 @@ deck.py — 產生「同學作答分析_{學期} {課程}_W{n}.pptx」（自然�
 
 頁型：
     封面 → 總覽（各題作答率＋整體覆蓋率）→ **一題一頁**
+    → 2.5 附錄各題繳交矩陣（≤8 題才做；每頁 22 列、最多 2 頁；● 已交／○ 未交）
     → 附錄概念矩陣（每頁 2 題，最多 3 頁）→ 結尾
+
+    2.5 分組題＋對照表組別（q["組員計算"]）：副標「作答 4 / 5 組（組員 17 / 21 人視為已交）
+    作答率 81.0%」、左卡大數字下加「組員 n / N 人視為已交」、完成率卡寫組數＝組員人數。
 
 題頁版面（2.2 新版，開放文字題；必守）：
     左欄（0.55–5.55）白色圓角卡：文字雲（等比縮放）＋三行圖說「圖 N …」
@@ -366,12 +370,16 @@ def slide_overview(prs, ctx, qs):
 
     rect(s, 0.55, 1.88, 12.23, 4.32, fill=WHITE,
          shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.03)
-    cols = [(0.85, 0.95), (1.85, 3.85), (5.85, 1.35), (7.30, 1.05),
+    # 2.5：有「分組題＋組別」時「作答/全班」要寫成 4/5 組（17/21 人），題目欄讓出 0.55 吋
+    wide = any(q.get("組員計算") for q in qs)
+    cols = [(0.85, 0.95), (1.85, 3.30 if wide else 3.85),
+            (5.25, 1.95) if wide else (5.85, 1.35), (7.30, 1.05),
             (8.45, 1.45), (10.05, 2.45)]
     for (cx, cw), h in zip(cols, ["題號", "題目", "作答/全班", "作答率",
                                   "整體覆蓋率", "覆蓋率長條"]):
         textbox(s, cx, 2.10, cw, 0.3, h, size=13, bold=True, color=DEEP)
     rect(s, 0.85, 2.45, 11.65, 0.015, fill=LINE)
+    (tx, tw), (ax, aw) = cols[1], cols[2]
 
     # 題數多時自動縮小列高，確保 10 題也放得下（卡片底緣 6.20 吋）
     rows_h = min(0.345, (6.10 - 2.58) / max(len(qs), 1))
@@ -387,12 +395,16 @@ def slide_overview(prs, ctx, qs):
         unit = q.get("作答單位", "人")
         denom = q.get("作答分母", q["全班人數"])
         textbox(s, 0.85, y, 0.95, 0.3, q["題號"], size=size, bold=True, color=col)
-        textbox(s, 1.85, y, 3.85, 0.3, fit_one_line(q["題目"], 3.85, size),
+        textbox(s, tx, y, tw, 0.3, fit_one_line(q["題目"], tw, size),
                 size=size, color=TEXT)
-        textbox(s, 5.85, y, 1.35, 0.3,
-                fit_one_line(f"{q['作答人數']} / {denom}" + (" 組" if unit == "組" else ""),
-                             1.35, size),
-                size=size, color=MUTED if zero else TEXT)
+        if q.get("組員計算"):
+            cell = (f"{q['作答人數']}/{denom} 組"
+                    f"（{q['組員作答人數']}/{q['全班人數']} 人）")
+        else:
+            cell = f"{q['作答人數']} / {denom}" + (" 組" if unit == "組" else "")
+        csz = size if disp_width(cell) * size / 72.0 <= aw - 0.05 else size - 2
+        textbox(s, ax, y, aw, 0.3, fit_one_line(cell, aw, csz),
+                size=csz, color=MUTED if zero else TEXT)
         textbox(s, 7.30, y, 1.05, 0.3, f"{q['作答率']}%", size=size, color=TEXT)
         textbox(s, 8.45, y, 1.45, 0.3,
                 f"{cov}%" if has_cov else ("—" if zero else "—（選擇題）"),
@@ -711,10 +723,20 @@ def slide_question(prs, ctx, wc_png, idx):
         rect(s, 0.55, 1.88, 6.30, 4.32, fill=WHITE,
              shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.04)
         iw = 5.84
-        textbox(s, 0.78, 2.20, iw, 1.10, ctx.get("大數字", ""), size=60, bold=True,
-                color=TEAL, align=PP_ALIGN.CENTER)
-        textbox(s, 0.78, 3.40, iw, 0.36, ctx.get("大數字說明", ""), size=16,
-                color=TEXT, align=PP_ALIGN.CENTER)
+        extra = ctx.get("大數字補充", "")
+        if extra:
+            # 2.5 分組題＋組別：大數字與說明上移 0.15–0.22 吋，讓出一行「組員 n / N 人視為已交」
+            textbox(s, 0.78, 2.05, iw, 1.10, ctx.get("大數字", ""), size=60, bold=True,
+                    color=TEAL, align=PP_ALIGN.CENTER)
+            textbox(s, 0.78, 3.18, iw, 0.32, ctx.get("大數字說明", ""), size=16,
+                    color=TEXT, align=PP_ALIGN.CENTER)
+            textbox(s, 0.78, 3.53, iw, 0.28, fit_one_line(extra, iw, 14, reserve=0.5),
+                    size=14, bold=True, color=GREEN, align=PP_ALIGN.CENTER)
+        else:
+            textbox(s, 0.78, 2.20, iw, 1.10, ctx.get("大數字", ""), size=60, bold=True,
+                    color=TEAL, align=PP_ALIGN.CENTER)
+            textbox(s, 0.78, 3.40, iw, 0.36, ctx.get("大數字說明", ""), size=16,
+                    color=TEXT, align=PP_ALIGN.CENTER)
         opts = ctx.get("選項分佈", [])[:4]
         if opts:
             column(s, 0.78, 3.88, 3.70, 1.10,
@@ -792,13 +814,115 @@ def slide_appendix(prs, ctx, tables):
     return s
 
 
+# ---- 2.5 附錄：各題繳交矩陣 -----------------------------------------------------
+DONE_PER_PAGE = 22          # 每頁最多 22 位學生
+DONE_MAX_PAGES = 2          # 最多 2 頁（44 列），其餘見 completion_matrix.csv
+DONE_MAX_Q = 8              # 超過 8 題不做這頁，改看 summary.md／CSV
+DONE_PT = 10                # 表格字級（≥10pt）
+DONE_CARD = (0.55, 1.86, 12.23, 4.36)
+DONE_ROWS_BOTTOM = 6.12     # 表格最後一列的底線（卡片底 6.22 之上）
+
+
+def completion_pages(analysis):
+    """回傳要做幾頁繳交矩陣：[列清單, …]（不做就回 []）。"""
+    mx = (analysis or {}).get("繳交矩陣") or {}
+    rows = list(mx.get("列") or [])
+    n_q = len(mx.get("題號") or [])
+    if not rows or not (1 <= n_q <= DONE_MAX_Q):
+        return []
+    rows = rows[:DONE_PER_PAGE * DONE_MAX_PAGES]
+    return [rows[i:i + DONE_PER_PAGE] for i in range(0, len(rows), DONE_PER_PAGE)]
+
+
+def slide_completion(prs, ctx, rows, qnos, grp_qs):
+    """附錄：各題繳交矩陣（列＝學生編號、欄＝Q 號；● 已交／○ 未交；最右欄繳交題數）。"""
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    set_bg(s, BG)
+    page_head(s, ctx["頁碼標"], ctx["眉標"], ctx["標題"], ctx["副標"], ctx.get("logo"))
+    cx, cy, cw, ch = DONE_CARD
+    rect(s, cx, cy, cw, ch, fill=WHITE, shape=MSO_SHAPE.ROUNDED_RECTANGLE, radius=0.03)
+
+    pt = DONE_PT
+    x0, inner = cx + 0.30, cw - 0.60                 # 0.85 / 11.63
+    w_code, w_grp, w_cnt = 1.85, 1.05, 1.15
+    w_q = min(1.20, (inner - w_code - w_grp - w_cnt) / max(len(qnos), 1))
+    y_head = cy + 0.12
+    head_h = line_h(pt + 1)
+    y_line = y_head + head_h + 0.03
+    y_rows = y_line + 0.05
+    # 22 列在 10pt、行距 1.0 時會超過卡片 → 只在放不下時才把行距收到 0.9–1.0
+    ls = max(0.9, min(1.0, (DONE_ROWS_BOTTOM - y_rows) / max(len(rows) * line_h(pt), 0.01)))
+    box_h = len(rows) * line_h(pt, ls)
+
+    hdr = ["學生編號", "組別"] + [q + ("(組)" if q in grp_qs else "") for q in qnos] + ["繳交題數"]
+    xs = [x0, x0 + w_code] + [x0 + w_code + w_grp + k * w_q for k in range(len(qnos))] \
+        + [x0 + w_code + w_grp + len(qnos) * w_q]
+    ws = [w_code, w_grp] + [w_q] * len(qnos) + [w_cnt]
+    for k, (hx, hw, ht) in enumerate(zip(xs, ws, hdr)):
+        textbox(s, hx, y_head, hw - 0.04, head_h, fit_one_line(ht, hw - 0.04, pt + 1),
+                size=pt + 1, bold=True, color=DEEP,
+                align=PP_ALIGN.LEFT if k < 2 else PP_ALIGN.CENTER, line_spacing=1.0)
+    rect(s, x0, y_line, inner, 0.015, fill=LINE)
+
+    def col_lines(vals, color_of):
+        return [(v, pt, color_of(v), False, ls, 0) for v in vals]
+
+    codes = [r["學生編號"] for r in rows]
+    grps = [r["組別"] or ("名單外" if r.get("名單外") else "—") for r in rows]
+    column(s, xs[0], y_rows, w_code - 0.04, box_h,
+           col_lines(codes, lambda v: TEXT))
+    column(s, xs[1], y_rows, w_grp - 0.04, box_h,
+           col_lines(grps, lambda v: MUTED if v in ("—", "名單外") else TEXT))
+    for k, qn in enumerate(qnos):
+        on_col = GREEN if qn in grp_qs else TEAL
+        marks = []
+        for r in rows:
+            v = r["值"][k]
+            marks.append("—" if v == "" else ("●" if v else "○"))
+        column(s, xs[2 + k], y_rows, w_q - 0.04, box_h,
+               col_lines(marks, lambda v, c=on_col: c if v == "●" else MUTED),
+               align=PP_ALIGN.CENTER)
+    cnt = [f"{r['繳交題數']} / {r['可判定題數']}" for r in rows]
+    column(s, xs[-1], y_rows, w_cnt - 0.04, box_h,
+           [(v, pt, GREEN if r["繳交題數"] == r["可判定題數"] and r["可判定題數"] else GOLD,
+             True, ls, 0) for v, r in zip(cnt, rows)],
+           align=PP_ALIGN.CENTER)
+
+    band(s, fit_one_line(ctx["總結"], 11.8, 15), size=15)
+    notes(s, ctx["逐字稿"])
+    return s
+
+
+def _done_notes(pi, n_pages, rows, mx, sm, truncated):
+    """繳交矩陣頁逐字稿：100–250 字，說明怎麼讀、分組題規則、名單外作答者排最後。"""
+    L = [f"這一頁是各題繳交矩陣" + (f"的第{cn_num(pi)}頁" if n_pages > 1 else "") + "。",
+         "每一列是一位同學的學生編號，每一欄是一題，實心圓代表已交，空心圓代表未交。",
+         "最右邊是這位同學本週交了幾題。"]
+    if mx.get("分組題"):
+        if mx.get("有組別資料"):
+            L.append("欄名後面標「組」的是分組題，只要該組有人交，全組組員都算已交。")
+        else:
+            L.append("欄名後面標「組」的是分組題，因為沒有組別資料，這一欄先畫橫線、不計入繳交題數。")
+    if pi == 1:
+        L.append(f"名單內全部繳交的有{cn_num(sm.get('全部繳交', 0))}人，"
+                 f"缺一題的{cn_num(sm.get('缺1題', 0))}人，"
+                 f"缺兩題以上的{cn_num(sm.get('缺2題以上', 0))}人。")
+    if sm.get("名單外作答人數"):
+        L.append("名單外的作答者排在表格最後面，組別欄寫名單外。")
+    if truncated:
+        L.append("人數比較多，其餘同學請看輸出資料夾的繳交矩陣檔。")
+    L.append("缺交名單我也整理在摘要檔裡，方便追蹤。")
+    return _trim_notes(L, [len(L) - 1], limit=250, protect=(0, 1))
+
+
 def slide_closing(prs, ctx):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(s, NAVY)
     rect(s, 9.9, -1.5, 5.2, 5.2, fill=RGBColor(0x10, 0x2C, 0x4E), shape=MSO_SHAPE.OVAL)
     rect(s, -1.4, 4.9, 3.6, 3.6, fill=RGBColor(0x0E, 0x27, 0x45), shape=MSO_SHAPE.OVAL)
     textbox(s, 0.9, 2.20, 9.4, 0.32, ctx["眉標"], size=13, color=MOSS, bold=True)
-    textbox(s, 0.9, 2.62, 10.2, 1.3, ctx["主標"], size=38, bold=True, color=WHITE,
+    # 2.5：高 1.3 → 1.45（PowerPoint COM 實測兩行 38pt 的 BoundHeight 約 1.40 吋，原框溢出 6.9pt）
+    textbox(s, 0.9, 2.62, 10.2, 1.45, ctx["主標"], size=38, bold=True, color=WHITE,
             line_spacing=1.15)
     rect(s, 0.9, 4.20, 6.6, 0.02, fill=RGBColor(0x2B, 0x4A, 0x6E))
     textbox(s, 0.9, 4.45, 10.0, 1.4, ctx["說明"], size=18,
@@ -970,7 +1094,13 @@ def _q_notes(q, idx, total_q, week_label):
     add(f"這一頁是第{cn_num(idx)}題，題目是「{title}」。")
     grp = bool(q.get("分組"))
     who = "組" if grp else "位同學"
-    if grp:
+    if grp and q.get("組員計算"):
+        add(f"這一題是分組題，{cn_num(q.get('作答分母', 0))}組裡有{cn_num(q['作答人數'])}組作答。",
+            must=True)
+        add(f"只要該組有人交，全組都算已交，所以全班{cn_num(q['全班人數'])}人裡有"
+            f"{cn_num(q.get('組員作答人數', 0))}人視為已交，作答率{pct(q['作答率'])}。",
+            must=True)
+    elif grp:
         add(f"這一題是分組題，{cn_num(q.get('作答分母', 0))}組裡有{cn_num(q['作答人數'])}組作答，"
             f"作答率{pct(q['作答率'])}。")
     else:
@@ -1058,6 +1188,8 @@ def _zero_notes(q, idx):
     if q.get("分組"):
         L.append(f"這一題是分組題，到截止日前還沒有任何一組作答，"
                  f"目前是零比{cn_num(denom)}組。")
+        if q.get("組員計算"):
+            L.append("只要該組有人交，全組都算已交，目前全班還沒有人視為已交。")
     else:
         L.append(f"這一題到截止日前還沒有同學作答，目前是零比{cn_num(denom)}人。")
     if subs:
@@ -1070,7 +1202,8 @@ def _zero_notes(q, idx):
     L.append("總覽頁的平均作答率有把這一題算進去，所以平均會稍微偏低。")
     L.append("等本題截止之後，我會重跑本週分析，把這一頁補齊。")
     L.append("以上是這一題的情形，接下來看下一題。")
-    out = _trim_notes(L, opt, limit=ZERO_NOTE_MAX, protect=(0, 1, len(L) - 1))
+    keep = (0, 1, len(L) - 1) + ((2,) if q.get("分組") and q.get("組員計算") else ())
+    out = _trim_notes(L, opt, limit=ZERO_NOTE_MAX, protect=keep)
     if len("\n".join(out)) < ZERO_NOTE_MIN:
         out.insert(-1, "這一題的子題敘述也會完整保留在輸出資料夾的摘要檔裡。")
     return out
@@ -1111,7 +1244,10 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
                 break
             apx_pages.append(appendix_qs[i:i + APX_PER_PAGE])
     apx_shown = sum(len(p) for p in apx_pages)
-    total = 3 + n_q + len(apx_pages)
+    # 2.5：各題繳交矩陣附錄（≤8 題才做；每頁 22 列、最多 2 頁），放在概念矩陣附錄之前
+    done_pages = completion_pages(analysis)
+    n_done = len(done_pages)
+    total = 3 + n_q + n_done + len(apx_pages)
 
     # ---- 1. 封面
     slide_cover(prs, {
@@ -1170,6 +1306,13 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
         if not png or not os.path.exists(png):
             cap = (f"圖 {i}　{q['題號']} 選項分佈（{week_label}，{course}）\n"
                    f"資料來源：Zuvio 下載數據（已去識別化）；本題為選擇題／測驗題，不做文字雲。")
+        # 2.5：分組題＋對照表組別 → 「該組有人交＝全組已交」換算成人
+        mem = bool(q.get("組員計算"))
+        g_denom = q.get("作答分母", q["全班人數"])
+        mem_txt = (f"組員 {q.get('組員作答人數', 0)} / {q['全班人數']} 人視為已交"
+                   if mem else "")
+        if mem and focus:
+            cap += f"\n分組題：{q['作答人數']} / {g_denom} 組作答＝{mem_txt}"
         # 選擇題／測驗題：每個子題只列「最多人選的那個選項」，並標上子題號，
         # 免得多個子題的選項混在一起看不出誰是誰。
         opts, sub_opts, rates = [], [], []
@@ -1185,6 +1328,10 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
         if rates:
             ans_title = "答對率（各子題）"
             ans_body = "　".join(f"{lab} {r}%" for lab, r in rates[:5])
+        elif mem:
+            ans_title = "作答完成率（該組有人交＝全組已交）"
+            ans_body = (f"{q['作答人數']} / {g_denom} 組作答＝組員 "
+                        f"{q.get('組員作答人數', 0)} / {q['全班人數']} 人，完成率 {q['作答率']}%")
         else:
             ans_title = "作答完成率"
             ans_body = (f"{q['作答人數']} / {q.get('作答分母', q['全班人數'])} "
@@ -1196,12 +1343,15 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
             slide_question(prs, {
                 "頁碼標": i + 1, "眉標": f"QUESTION {i:02d}",
                 "標題": f"解讀 {q['題號']}：{q['題目']}",
-                "副標": (f"作答 0 / {denom} {unit}　截止日前尚無人作答　"
-                       f"子題 {n_sub} 個" + ("　分組題" if q.get("分組") else "")),
+                "副標": (f"作答 0 / {denom} {unit}"
+                       + (f"（{mem_txt}）" if mem else "")
+                       + f"　截止日前尚無人作答　子題 {n_sub} 個"
+                       + ("　分組題" if q.get("分組") else "")),
                 "尚無作答": True,
                 "大數字": f"0 / {denom} {unit}",
                 "左卡說明": ([f"本題為分組題，共 {denom} 組"] if q.get("分組") else
                          [f"未作答名單 {q.get('未作答人數') or denom} 人"])
+                        + ([mem_txt] if mem else [])
                         + ([f"題型：{q['題型']}"] if q.get("題型") else []),
                 "子題清單": q.get("子題清單") or [],
                 "總結": "本題截止後重跑本週分析即可補齊",
@@ -1220,15 +1370,24 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
         else:
             summary = (f"{q['題號']} 為選擇題／測驗題，改看選項分佈與"
                        + ("答對率" if rates else "作答完成率"))
-        slide_question(prs, {
-            "頁碼標": i + 1, "眉標": f"QUESTION {i:02d}",
-            "標題": f"解讀 {q['題號']}：{q['題目']}",
-            "副標": (f"作答 {q.get('名單內作答人數', q['作答人數'])} / {q.get('作答分母', q['全班人數'])} "
+        if mem:
+            # 2.5：作答 4 / 5 組（組員 17 / 21 人視為已交）　作答率 81.0%（放不下才省略字數資訊）
+            sub = (f"作答 {q['作答人數']} / {g_denom} 組（{mem_txt}）"
+                   f"　作答率 {q['作答率']}%")
+            more = f"　開放文字 {q.get('文字列數', q['有效列數'])} 則　平均 {q['平均字數']} 字"
+            if focus and disp_width(sub + more) <= 11.0 / (14 / 72.0) - 0.5:
+                sub += more
+        else:
+            sub = (f"作答 {q.get('名單內作答人數', q['作答人數'])} / {q.get('作答分母', q['全班人數'])} "
                    f"{q.get('作答單位', '人')}"
                    + (f"（另名單外 {q['名單外作答人數']} 人）" if q.get('名單外作答人數') else "")
                    + f"　作答率 {q['作答率']}%　"
                    f"開放文字 {q.get('文字列數', q['有效列數'])} 則　"
-                   f"平均 {q['平均字數']} 字"),
+                   f"平均 {q['平均字數']} 字")
+        slide_question(prs, {
+            "頁碼標": i + 1, "眉標": f"QUESTION {i:02d}",
+            "標題": f"解讀 {q['題號']}：{q['題目']}",
+            "副標": sub,
             "圖說": cap,
             "重點標題": (f"{cn_num(len(focus))}個重點（依提及人數排序）"
                     f"　概念｜提及人數｜覆蓋率" if focus else "重點概念"),
@@ -1248,12 +1407,38 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
             "答對內容": ans_body,
             "大數字": f"{q['作答人數']}",
             "大數字說明": "組作答" if q.get("分組") else "位同學作答",
+            "大數字補充": mem_txt,
             "單位": "組" if q.get("分組") else "人",
             "總結": summary,
             "logo": logo,
             "逐字稿": _q_notes(q, i, n_q, week_label),
         }, png, i)
         footer(prs.slides[-1], series, i + 2, total)
+
+    # ---- 4a. 2.5 附錄：各題繳交矩陣
+    mx = analysis.get("繳交矩陣") or {}
+    sm = analysis.get("繳交概況") or {}
+    n_rows_all = len(mx.get("列") or [])
+    shown_rows = sum(len(p) for p in done_pages)
+    for pi, rows in enumerate(done_pages, 1):
+        last = pi == n_done
+        truncated = last and n_rows_all > shown_rows
+        tag = f"（{pi} / {n_done}）" if n_done > 1 else ""
+        band_txt = (f"名單內全部繳交 {sm.get('全部繳交', 0)} 人、缺 1 題 {sm.get('缺1題', 0)} 人、"
+                    f"缺 2 題以上 {sm.get('缺2題以上', 0)} 人；"
+                    + (f"其餘 {n_rows_all - shown_rows} 位見 completion_matrix.csv"
+                       if truncated else "完整表見 completion_matrix.csv"))
+        slide_completion(prs, {
+            "頁碼標": n_q + 1 + pi, "眉標": "APPENDIX　SUBMISSION MATRIX",
+            "標題": f"核對各題繳交矩陣{tag}",
+            "副標": ("● 已交　○ 未交　"
+                   + ("(組)＝分組題：該組有人交，全組組員都算已交　" if mx.get("分組題") else "")
+                   + ("名單外作答者排在最後" if sm.get("名單外作答人數") else "列＝學生編號（依編號排序）")),
+            "總結": band_txt,
+            "logo": logo,
+            "逐字稿": _done_notes(pi, n_done, rows, mx, sm, truncated),
+        }, rows, list(mx.get("題號") or []), set(mx.get("分組題") or []))
+        footer(prs.slides[-1], series, n_q + 2 + pi, total)
 
     # ---- 4. 附錄：概念矩陣小表（學生一律依**編號數字**排序，115-1_EC_2 在 _10 前面）
     def _code_num(code):
@@ -1275,7 +1460,7 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
             note = f"另有 {rest} 題的概念矩陣受版面限制未列，請看 CSV；" + note
         page_tag = f"（{pi} / {n_apx}）" if n_apx > 1 else ""
         slide_appendix(prs, {
-            "頁碼標": n_q + 1 + pi, "眉標": "APPENDIX　CONCEPT MATRIX",
+            "頁碼標": n_q + 1 + n_done + pi, "眉標": "APPENDIX　CONCEPT MATRIX",
             "標題": f"對照概念矩陣（前十位學生編號）{page_tag}",
             "副標": "①–⑥ 是這一題的六個重點；1 代表該生的回答有提到，0 代表沒有提到",
             "附註": note,
@@ -1293,7 +1478,7 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
                 "表格裡只會出現學生編號，不會出現姓名和學號。",
             ],
         }, tables)
-        footer(prs.slides[-1], series, n_q + 2 + pi, total)
+        footer(prs.slides[-1], series, n_q + 2 + n_done + pi, total)
 
     # ---- 5. 結尾
     slide_closing(prs, {

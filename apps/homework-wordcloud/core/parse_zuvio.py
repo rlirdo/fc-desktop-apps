@@ -56,6 +56,7 @@ import openpyxl
 from .mask import (StudentCoder, build_roster, build_replacer, mask_in_text,
                    mask_name, mask_id, is_student_id, normalize_course_code,
                    normalize_semester, NOT_A_NAME)
+from .roster import group_no
 
 CSV_COLS = ["題號", "子題號", "子題題目", "學生編號", "學號", "姓名", "作答時間", "作答內容"]
 
@@ -599,7 +600,14 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
 
     def code_at(i, sid, name):
         c = _clean_code(codes[i]) if (has_codes and i < len(codes)) else ""
-        return c or coder.code_for(sid, name)
+        if c:
+            return c
+        if has_codes and fixed and hasattr(coder, "cb"):
+            # 2.5：已編號輸入（NameMasker 輸出）＋對照表：A 欄空白的列只「查」不「登記」。
+            #      這時學號／姓名已是遮罩字樣（OOOOOOOOO、王O明），登記下去只會把
+            #      遮罩字串寫進對照表的「名單外作答者」。
+            return coder.cb.roster_code_for(sid, name) or coder.cb.outsider_code_for(sid, name)
+        return coder.code_for(sid, name)
 
     # ---- 名冊（只在記憶體，用來把自由文字裡的同學姓名換成學生編號）
     roster = build_roster(
@@ -681,6 +689,7 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
     named = len(p["rows"]) - anon
     n_missing = len(p["unanswered"])
     n_groups = 0
+    done_nos, all_nos = [], []
     if group:
         # 分組題：作答人數＝已作答組數；未作答＝未作答組數；另記總組數
         done = {r[3] for r in out_rows if r[3]} | {r[0] for r in g["作答列"]}
@@ -689,6 +698,12 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
         answered = len(done)
         n_missing = len(g["未作答組別"]) or max(n_groups - answered, 0)
         named = answered
+        # 2.5：組號（int）—— 作答組別取自「組別｜作答時間｜總分」區塊（明細區塊有作答的
+        #      組也算，和作答人數同一套口徑）；全部組別取自「分組名單」區塊，沒有就退回
+        #      作答＋未作答組別。對照表「組別」欄靠這兩個清單換算「組員視為已交」。
+        done_nos = sorted({group_no(x) for x in done} - {0})
+        all_nos = sorted({group_no(x) for x in g["名單組別"]} - {0}) or \
+            sorted({group_no(x) for x in (done | set(g["未作答組別"]))} - {0})
     rec = {
         "題號": qno,
         "來源檔": os.path.basename(path),
@@ -704,6 +719,7 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
         "全班人數": named + len(p["unanswered"]),
         "分組": bool(group),
         "組數": n_groups,
+        **({"作答組別": done_nos, "全部組別": all_nos} if group else {}),
         "學生編號清單": sorted(file_codes),
         "子題數": len(subs_meta),
         "子題": subs_meta,
@@ -718,11 +734,14 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
     return out_rows, rec
 
 
-def parse_dir(input_dir, out_dir, semester="", course="", log=print, codebook=None):
+def parse_dir(input_dir, out_dir, semester="", course="", log=print, codebook=None,
+              stats=None):
     """把 input_dir 內所有檔案轉成 out_dir 內的 Q0N_*.csv，回傳 index 清單。
 
     codebook 是 `core.roster.Codebook`（2.1 預設要有）：整批檔案共用同一顆
     FixedCoder，學生編號跨題跨週固定；全班人數也直接用對照表的人數。
+    stats    （2.5，選用）傳一個 dict 進來，會填入 `本週學生編號`＝本週所有輸入檔
+             出現過的不重複學生編號（作答＋未作答；給繳交矩陣在沒有對照表時當列）。
     """
     os.makedirs(out_dir, exist_ok=True)
     files = list_inputs(input_dir)
@@ -790,6 +809,9 @@ def parse_dir(input_dir, out_dir, semester="", course="", log=print, codebook=No
             rec["未作答人數"] = rec["全班人數"]
         rec.pop("學生編號清單", None)      # 只是中間結果，不寫進 index json
     log(f"  全班人數統一為 {klass} 人（來源：{src}）；所有題頁共用這個分母。")
+    if stats is not None:
+        stats["本週學生編號"] = sorted(c for c in union_codes
+                                  if re.search(r"_\d+$", str(c or "")))
     return index
 
 

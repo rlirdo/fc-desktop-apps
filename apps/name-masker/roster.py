@@ -21,6 +21,9 @@ TA 先給一份「原始名單」，本模組負責：
        （不在名單的作答者＝退選等，編號自 101 起遞增，**持久登記**、跨檔跨週一致）
      * 工作表「說明」：規則與警語
   4. 名單外作答者的持久登記（`Codebook.register_outsider`）。
+  5. 2.3.2：對照表（或原始名單）可另加選用欄「組別」「角色」（表頭同一列才讀）。
+     `group_no()` 把 第1組／第01組／G1／1／Group 2 換成組號；`Codebook.groups()`
+     回傳 {組號: [學生編號…]}。重新產生對照表時，既有對照表的組別／角色依學號保留。
 
 ★ 對照表含真實姓名與學號，是「再識別鑰匙」，只能留在自己的電腦。
 
@@ -35,6 +38,7 @@ import csv
 import os
 import re
 import sys
+import unicodedata
 from dataclasses import dataclass, field
 
 try:
@@ -47,7 +51,7 @@ try:
 except ImportError:  # pragma: no cover
     sys.exit("缺少 openpyxl，請先執行：pip install openpyxl")
 
-__version__ = "2.2.0"
+__version__ = "2.3.2"
 
 # --------------------------------------------------------------------------
 # 常數
@@ -104,6 +108,10 @@ NAME_HDR_RE = re.compile(r"^(姓名|學生姓名|name)$", re.I)
 SEQ_HDR_RE = re.compile(r"^(序號|編號|項次|No\.?|#)$", re.I)
 CLASS_HDR_RE = re.compile(r"(班級|系級|班別|系所|科系|年級)")
 CODE_HDR_RE = re.compile(r"^(學生編號|學生代號|代號)$")
+# 2.3.2 選用欄：組別／角色（表頭同一列出現才讀；其餘未知欄位一律忽略）
+GROUP_HDR_RE = re.compile(r"^(組別|分組|小組|組號)$")
+ROLE_HDR_RE = re.compile(r"^(角色|組內角色|職務)$")
+OPT_HEADERS = ("組別", "角色")       # 任一學生有值才寫進對照表
 
 
 class RosterError(Exception):
@@ -188,6 +196,51 @@ def _clean_name(t):
     return t.strip()
 
 
+# ---- 組別（2.3.2） ------------------------------------------------------------
+_CN_SMALL = {"〇": 0, "零": 0, "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5,
+             "六": 6, "七": 7, "八": 8, "九": 9}
+GROUP_LABEL_RE = re.compile(
+    r"^(?:第|group|grp|team|g|小組|組)?([0-9]{1,3}|[〇零一二兩三四五六七八九十]{1,3})(?:組|號)?$",
+    re.I)
+
+
+def _cn_int(s):
+    """1–3 位阿拉伯數字或「一」到「九十九」的中文數字 → int；看不懂回 0。"""
+    if s.isdigit():
+        return int(s)
+    if "十" in s:
+        a, _, b = s.partition("十")
+        if (a and a not in _CN_SMALL) or (b and b not in _CN_SMALL) or "十" in b:
+            return 0
+        return (_CN_SMALL[a] if a else 1) * 10 + (_CN_SMALL[b] if b else 0)
+    return _CN_SMALL.get(s, 0) if len(s) == 1 else 0
+
+
+def group_no(label):
+    """組別標籤 → 整數組號：第1組／第01組／第一組／G1／1／Group 2 → 1、1、1、1、1、2。
+
+    取不到（空白、看不懂、0）一律回 0。Zuvio 匯出的「第01組」與對照表的「第1組」
+    都換成同一個整數，兩邊才對得起來。
+    """
+    if label is None or isinstance(label, bool):
+        return 0
+    if isinstance(label, (int, float)):
+        return int(label) if float(label).is_integer() and label > 0 else 0
+    s = unicodedata.normalize("NFKC", str(label))
+    s = re.sub(r"\s+", "", s)
+    m = GROUP_LABEL_RE.match(s)
+    if not m:
+        return 0
+    n = _cn_int(m.group(1))
+    return n if n > 0 else 0
+
+
+def _code_key(code):
+    """學生編號排序：115-1_EC_2 在 115-1_EC_10 前面。"""
+    m = re.search(r"_(\d+)$", str(code or ""))
+    return (0, int(m.group(1)), "") if m else (1, 0, str(code or ""))
+
+
 # --------------------------------------------------------------------------
 # 資料物件
 # --------------------------------------------------------------------------
@@ -198,6 +251,8 @@ class Student:
     sid: str = ""
     name: str = ""
     klass: str = ""
+    group: str = ""             # 2.3.2 選用：組別標籤（原樣保留，例「第1組」）
+    role: str = ""              # 2.3.2 選用：組內角色（例「組長」）
 
 
 @dataclass
@@ -627,12 +682,16 @@ def _find_header(rows):
     for r in range(min(5, len(rows))):
         cells = [text_of(c) for c in rows[r]]
         cid = cname = cseq = ccls = ccode = -1
-        cdept = cyear = -1
+        cdept = cyear = cgrp = crole = -1
         for c, t in enumerate(cells):
             if not t:
                 continue
             if ccode < 0 and CODE_HDR_RE.match(t):
                 ccode = c
+            if cgrp < 0 and GROUP_HDR_RE.match(t):
+                cgrp = c
+            if crole < 0 and ROLE_HDR_RE.match(t):
+                crole = c
             if cid < 0 and ID_HDR_RE.search(t) and not CODE_HDR_RE.match(t):
                 cid = c
             if cname < 0 and NAME_HDR_RE.match(t):
@@ -650,7 +709,8 @@ def _find_header(rows):
                     ccls = c
         if cid >= 0 and cname >= 0:
             return r, {"sid": cid, "name": cname, "seq": cseq, "klass": ccls,
-                       "dept": cdept, "year": cyear, "code": ccode}
+                       "dept": cdept, "year": cyear, "code": ccode,
+                       "group": cgrp, "role": crole}
     return -1, None
 
 
@@ -680,7 +740,8 @@ def _records_from_rows(rows, hdr_row, col):
         seq_raw = text_of(get("seq"))
         seq = int(seq_raw) if seq_raw.isdigit() else 0
         code = text_of(get("code"))
-        recs.append(Student(seq=seq, code=code, sid=sid, name=name, klass=klass))
+        recs.append(Student(seq=seq, code=code, sid=sid, name=name, klass=klass,
+                            group=text_of(get("group")), role=text_of(get("role"))))
     return recs
 
 
@@ -795,6 +856,8 @@ def _note_lines(semester, course, source, rule):
         [f"　3. 不在名單的作答者（退選、旁聽等）自 {OUTSIDER_START} 號起遞增，"
          f"登記在「{OUT_SHEET}」工作表，跨檔跨週一致。"],
         ["　4. 名單檔讀不到姓名的學生（罕用字）仍會保留，姓名欄空白，請自行補上。"],
+        ["　5. 選用欄「組別」（例：第1組、G1、1）與「角色」（例：組長）可自行加在本表最右邊；"
+         "分組題只要該組有人交，全組視為已交。重新產生對照表時依學號保留。"],
         [""],
         ["名單來源"],
         [f"　{os.path.basename(source) if source else '（未記錄）'}"],
@@ -814,18 +877,54 @@ def _fit_widths(ws, widths):
             pass
 
 
-def write_codebook(path, students, semester, course, source="", rule="", outsiders=None):
-    """全新建立（或覆寫）對照表。"""
+def carry_group_roles(path, students):
+    """2.3.2：重新產生對照表前，把 `path` 既有對照表裡的「組別／角色」依學號帶到新名單。
+
+    新名單自己已有值的不覆蓋；既有檔不存在／不是對照表就什麼都不做。回傳帶入人數。
+    （TA 在對照表手動加的分組資料，不可因為「產生／更新對照表」而消失。）
+    """
+    if not path or not os.path.isfile(path):
+        return 0
+    try:
+        old, _ = read_codebook(path)
+    except RosterError:
+        return 0
+    old_by = {normalize_id(s.sid): s for s in old if s.sid and (s.group or s.role)}
+    n = 0
+    for s in students:
+        o = old_by.get(normalize_id(s.sid))
+        if o is None:
+            continue
+        hit = False
+        if not s.group and o.group:
+            s.group, hit = o.group, True
+        if not s.role and o.role:
+            s.role, hit = o.role, True
+        n += hit
+    return n
+
+
+def write_codebook(path, students, semester, course, source="", rule="", outsiders=None,
+                   carry=True):
+    """全新建立（或覆寫）對照表。
+
+    carry=True（預設）：目標檔若已是對照表且含組別／角色，先依學號帶到新名單再覆寫。
+    任一學生有組別或角色 → 「學生編號對照」多寫「組別」「角色」兩欄。
+    """
+    if carry:
+        carry_group_roles(path, students)
     folder = os.path.dirname(os.path.abspath(path))
     if folder:
         os.makedirs(folder, exist_ok=True)
+    has_opt = any((s.group or s.role) for s in students)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = CODE_SHEET
-    ws.append(list(CODE_HEADERS))
+    ws.append(list(CODE_HEADERS) + (list(OPT_HEADERS) if has_opt else []))
     for s in students:
-        ws.append([s.seq, s.code, s.sid, s.name, s.klass])
-    _fit_widths(ws, (8, 18, 14, 14, 16))
+        ws.append([s.seq, s.code, s.sid, s.name, s.klass]
+                  + ([s.group, s.role] if has_opt else []))
+    _fit_widths(ws, (8, 18, 14, 14, 16) + ((10, 12) if has_opt else ()))
     try:
         ws.freeze_panes = "A2"
     except Exception:
@@ -981,6 +1080,27 @@ class Codebook:
     def count(self):
         return len(self.students)
 
+    # ---- 分組（2.3.2）----
+    def groups(self):
+        """{組號(int): [學生編號,…]}：只含名單內、而且有組別的學生（依編號排序）。"""
+        out = {}
+        for s in self.students:
+            n = group_no(s.group)
+            if n and s.code:
+                out.setdefault(n, []).append(s.code)
+        return {n: sorted(v, key=_code_key) for n, v in sorted(out.items())}
+
+    def has_groups(self):
+        """對照表是否有任何一位名單內學生填了組別。"""
+        return any(group_no(s.group) for s in self.students)
+
+    def group_of(self, code):
+        """學生編號 → 組號（沒有組別／名單外作答者回 0）。"""
+        for s in self.students:
+            if s.code == code:
+                return group_no(s.group)
+        return 0
+
     # ---- 查詢 ----
     def roster_code_for(self, sid, name=""):
         """只查「名單內」學生。"""
@@ -1093,6 +1213,11 @@ class Codebook:
         if self.outsiders:
             L.append(f"名單外作答者 {len(self.outsiders)} 人"
                      f"（{OUTSIDER_START} 號起，已持久登記）")
+        if self.has_groups():
+            g = self.groups()
+            n_in = sum(len(v) for v in g.values())
+            L.append(f"組別：{len(g)} 組、{n_in} 人有組別"
+                     + (f"、{self.count - n_in} 人未分組" if self.count > n_in else ""))
         return L
 
 
@@ -1153,6 +1278,9 @@ def build_codebook(roster_path=None, codebook_path=None, semester="115-1", cours
                 msgs.append(f"保留既有的名單外作答者登記 {len(outsiders)} 筆。")
         except RosterError:
             outsiders = []
+    n_carry = carry_group_roles(cb_path, students)
+    if n_carry:
+        msgs.append(f"保留既有對照表的組別／角色 {n_carry} 人（依學號帶入新表）。")
     write_codebook(cb_path, students, semester, course, data.source, data.rule, outsiders)
     msgs.append(f"已產生對照表（{len(students)} 人、{data.rule}）：{cb_path}")
     msgs.append("⚠ 對照表含真名與學號＝再識別鑰匙，只留本機，不要上傳。")
@@ -1259,6 +1387,9 @@ def prepare_codebook(path, semester, course, overwrite=False, out_dir=None,
             _, outsiders = read_codebook(target)
         except RosterError:
             outsiders = []
+    n_carry = carry_group_roles(target, students)
+    if n_carry:
+        log(f"  保留既有對照表的組別／角色 {n_carry} 人（依學號帶入新表）")
     write_codebook(target, students, semester, course, path, data.rule, outsiders)
     log(f"  名單檔：{os.path.basename(path)}　讀到 {len(students)} 人")
     log(f"  學生編號規則：{semester}_{course}_{{序號}}（{data.rule}）")
@@ -1272,7 +1403,8 @@ def describe(cb):
     if cb is None:
         return "尚未載入名單／對照表"
     return (f"讀到 {cb.count} 人　編號規則：{cb.semester}_{cb.course}_{{序號}}"
-            f"（{cb.rule}）　名單外 {len(cb.outsiders)} 人")
+            f"（{cb.rule}）　名單外 {len(cb.outsiders)} 人"
+            + (f"　分組 {len(cb.groups())} 組" if cb.has_groups() else ""))
 
 
 # --------------------------------------------------------------------------

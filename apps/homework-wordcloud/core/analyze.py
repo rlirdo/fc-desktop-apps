@@ -51,6 +51,11 @@ from functools import lru_cache
 import jieba
 import jieba.posseg as pseg
 
+from .roster import group_no
+
+COMPLETION_CSV = "completion_matrix.csv"      # 2.5：各題繳交矩陣
+CODE_SHAPE = re.compile(r"_\d+$")             # 學生編號一定以 _數字 結尾
+
 # ---------------------------------------------------------------- 內建詞典
 BASE_USER_WORDS = [
     "綠色化學", "十二原則", "綠色化學十二原則", "原子經濟", "原子經濟性", "綠色溶劑",
@@ -560,13 +565,135 @@ def write_questions(path, recs):
             w.writerow([x["學生編號"], x["提問句"], x["分類"]])
 
 
+# ---------------------------------------------------------------- 2.5 分組名單／繳交矩陣
+def roster_info(cb):
+    """Codebook → 分析用的精簡名單資訊（只有學生編號與組號，沒有任何姓名／學號）。
+
+    回傳 None（沒給對照表）或 dict：
+        codes      名單內學生編號（依編號排序）
+        group_of   {學生編號: 組號}（只含有組別的人）
+        outsiders  名單外作答者的學生編號（101 起）
+        has_groups 對照表有沒有任何組別
+    """
+    if cb is None:
+        return None
+    codes, group_of = [], {}
+    for s in getattr(cb, "students", []) or []:
+        c = str(getattr(s, "code", "") or "").strip()
+        if not c:
+            continue
+        codes.append(c)
+        n = group_no(getattr(s, "group", ""))
+        if n:
+            group_of[c] = n
+    outs = [str(getattr(o, "code", "") or "").strip()
+            for o in (getattr(cb, "outsiders", None) or [])]
+    return {"codes": sorted(set(codes), key=code_sort_key), "group_of": group_of,
+            "outsiders": [c for c in outs if c], "has_groups": bool(group_of)}
+
+
+def _code_no(code):
+    m = re.search(r"_(\d+)$", str(code or ""))
+    return int(m.group(1)) if m else 0
+
+
+def build_completion(questions, answered, roster=None, week_codes=None):
+    """各題繳交矩陣與繳交概況。
+
+    questions  analysis 的題目清單（要有 題號／分組／作答組別）
+    answered   {題號: 有作答的學生編號集合}（個人題才用得到）
+    roster     roster_info()；None 時列＝本週出現過的學生編號
+    規則：個人題＝該編號有作答；分組題＝該編號的組在「作答組別」內
+          （沒有組別資料時分組題留空字串，不計入繳交率）。
+    """
+    qnos = [q["題號"] for q in questions]
+    grp_q = {q["題號"] for q in questions if q.get("分組")}
+    has_groups = bool(roster and roster.get("has_groups"))
+    group_of = (roster or {}).get("group_of") or {}
+    done = {q["題號"]: set(q.get("作答組別") or []) for q in questions if q.get("分組")}
+
+    seen = set()
+    for qn in qnos:
+        if qn not in grp_q:
+            seen |= {c for c in answered.get(qn, set()) if CODE_SHAPE.search(c)}
+    if roster is not None:
+        inside = list(roster["codes"])
+        outs = sorted(seen - set(inside), key=code_sort_key)
+    else:
+        allc = seen | {c for c in (week_codes or []) if CODE_SHAPE.search(str(c))}
+        inside = sorted((c for c in allc if _code_no(c) < 101), key=code_sort_key)
+        outs = sorted((c for c in allc if _code_no(c) >= 101), key=code_sort_key)
+
+    rows = []
+    for code in inside + outs:
+        vals = []
+        for qn in qnos:
+            if qn in grp_q:
+                if not has_groups:
+                    vals.append("")
+                else:
+                    vals.append(1 if group_of.get(code, 0) in done[qn] else 0)
+            else:
+                vals.append(1 if code in answered.get(qn, set()) else 0)
+        judged = [v for v in vals if v != ""]
+        n_done = sum(judged)
+        g = group_of.get(code, 0)
+        rows.append({"學生編號": code, "組別": f"第{g}組" if g else "",
+                     "名單外": code in outs, "值": vals, "繳交題數": n_done,
+                     "可判定題數": len(judged),
+                     "繳交率": round(n_done * 100.0 / len(judged), 1) if judged else 0.0,
+                     "缺交": [qn for qn, v in zip(qnos, vals) if v == 0]})
+
+    note = ""
+    if grp_q and not has_groups:
+        note = ("註：" + "、".join(qn for qn in qnos if qn in grp_q)
+                + " 為分組題，但" + ("對照表沒有「組別」欄" if roster is not None
+                                   else "沒有提供學生編號對照表")
+                + "，無法判定個人是否繳交，該欄留空、不計入繳交率。")
+    inner = [r for r in rows if not r["名單外"]]
+    summ = {
+        "名單內人數": len(inner),
+        "名單外作答人數": len(outs),
+        "全部繳交": sum(1 for r in inner if r["可判定題數"] and not r["缺交"]),
+        "缺1題": sum(1 for r in inner if len(r["缺交"]) == 1),
+        "缺2題以上": sum(1 for r in inner if len(r["缺交"]) >= 2),
+        "缺交清單": [{"學生編號": r["學生編號"], "缺題": r["缺交"], "名單外": r["名單外"]}
+                 for r in rows if r["缺交"]],
+    }
+    return ({"題號": qnos, "分組題": [qn for qn in qnos if qn in grp_q],
+             "有組別資料": has_groups, "有對照表": roster is not None,
+             "列": rows, "註": note}, summ)
+
+
+def write_completion_matrix(path, matrix):
+    """completion_matrix.csv（UTF-8-SIG）：學生編號, 組別, Q01…, 繳交題數, 繳交率。"""
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["學生編號", "組別"] + list(matrix["題號"]) + ["繳交題數", "繳交率"])
+        for r in matrix["列"]:
+            w.writerow([r["學生編號"], r["組別"] or ("名單外" if r["名單外"] else "")]
+                       + list(r["值"]) + [r["繳交題數"], f"{r['繳交率']}%"])
+        if matrix.get("註"):
+            w.writerow([])
+            w.writerow([matrix["註"]])
+
+
 # ---------------------------------------------------------------- 主流程
-def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print):
-    """讀 work_dir 下的 Q*.csv，寫出 analysis.json、summary.md 與每題兩份 CSV。"""
+def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print,
+                roster=None, week_codes=None):
+    """讀 work_dir 下的 Q*.csv，寫出 analysis.json、summary.md 與每題兩份 CSV。
+
+    roster      2.5：`roster_info(codebook)`；有組別時分組題改以「人」計作答率
+                （該組有人交＝全組組員都算已交）。None＝2.4.4 行為（以組計）。
+    week_codes  2.5：本週出現過的學生編號（沒有對照表時當繳交矩陣的列）。
+    """
     meta = {r["題號"]: r for r in (index or [])}
     result = {"資料夾": os.path.basename(os.path.normpath(work_dir)), "題目": []}
     all_freq = Counter()
     all_questions = []
+    answered_by_q = {}
+    has_groups = bool(roster and roster.get("has_groups"))
+    group_of = (roster or {}).get("group_of") or {}
 
     paths = [p for p in sorted(glob.glob(os.path.join(glob.escape(work_dir), "Q*.csv")))
              if not os.path.basename(p).endswith(("_concept_matrix.csv", "_questions.csv"))]
@@ -672,6 +799,34 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print):
         in_roster = max(answered - outside, 0) if not is_group else answered
         rate_num = min(in_roster, denom) if not is_group else answered
         no_answer = answered == 0 and not rows
+        rate = round(rate_num * 100.0 / max(denom, 1), 1)
+        # 2.5：個人題的「有作答」學生編號（原始非空作答，和作答人數同一套口徑）
+        if not is_group:
+            answered_by_q[qno] = {student_key(r) for r in rows
+                                  if (r.get("作答內容") or "").strip() and student_key(r)}
+        grp_extra = {}
+        if is_group:
+            grp_extra = {"作答組別": list(m.get("作答組別") or []),
+                         "全部組別": list(m.get("全部組別") or [])}
+        if is_group and has_groups:
+            # 分組題＋對照表有組別：該組只要有一人交，全組組員都算已交 → 作答率改以「人」計
+            done_g = set(m.get("作答組別") or [])
+            members = sorted((c for c, g in group_of.items() if g in done_g), key=code_sort_key)
+            n_grouped = len(group_of)
+            n_roster = len(roster.get("codes") or [])
+            unknown = sorted(done_g - set(group_of.values()))
+            grp_extra.update({
+                "組員計算": True,
+                "組員作答學生編號": members,
+                "組員作答人數": len(members),
+                "組員全班人數": n_grouped,
+                "組作答率": rate,
+            })
+            if n_roster > n_grouped:
+                grp_extra["未分組人數"] = n_roster - n_grouped
+            if unknown:
+                grp_extra["對照表沒有的組別"] = unknown
+            rate = round(len(members) * 100.0 / max(klass, 1), 1)
         spk = speakers_by_word(valid_rows)
         top_rows = [{"詞": w, "次數": c, "提及人數": spk.get(w, 0)}
                     for w, c in freq.most_common(top_n)]
@@ -683,13 +838,14 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print):
             "來源檔": m.get("來源檔", ""),
             "作答人數": answered,
             "全班人數": klass,
-            "作答率": round(rate_num * 100.0 / max(denom, 1), 1),
+            "作答率": rate,
             "名單內作答人數": in_roster,
             "名單外作答人數": outside if not is_group else 0,
             "分組": is_group,
             "組數": n_groups,
             "作答單位": "組" if is_group else "人",
             "作答分母": denom,
+            **grp_extra,
             "尚無作答": no_answer,
             "未作答人數": int(m.get("未作答人數") or 0),
             "子題清單": [{"子題號": x.get("label", ""), "子題題目": x.get("text", "")}
@@ -720,6 +876,18 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print):
         })
         log(f"  {qno} 原始 {len(rows)} 列 → 有效 {sum(len(v) for v in per_sub.values())} 列"
             f"（開放文字 {len(texts)} 列／{n_ans} 人），子題 {len(subs)}")
+        if grp_extra.get("組員計算"):
+            log(f"       分組題：{answered} / {denom} 組作答"
+                f"（第 {'、'.join(str(x) for x in grp_extra['作答組別']) or '—'} 組）"
+                f"＝組員 {grp_extra['組員作答人數']} / {klass} 人視為已交，作答率 {rate}%"
+                + (f"；未分組 {grp_extra['未分組人數']} 人一律記未交"
+                   if grp_extra.get("未分組人數") else ""))
+            if grp_extra.get("對照表沒有的組別"):
+                log(f"       [提醒] 第 {grp_extra['對照表沒有的組別']} 組有作答，"
+                    "但對照表「組別」欄沒有這幾組 → 這幾組沒有組員可記已交，請核對組別。")
+        elif is_group and roster is not None:
+            log("       分組題：對照表沒有「組別」欄，作答率維持以「組」計"
+                "（在對照表加「組別」欄即可改以人計）。")
         if no_answer:
             log(f"       截止前尚無人作答（0 / {denom} {'組' if is_group else '人'}），"
                 f"子題 {len(m.get('子題') or [])} 個；簡報給一頁「尚無作答」。")
@@ -738,12 +906,69 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print):
 
     result["全班重點TOP10"] = all_freq.most_common(10)
     result["常見問題TOP5"] = all_questions[:5]
+
+    # ---- 2.5：各題繳交矩陣＋繳交概況
+    matrix, summ = build_completion(result["題目"], answered_by_q, roster=roster,
+                                    week_codes=week_codes)
+    result["繳交矩陣"] = matrix
+    result["繳交概況"] = summ
+    if roster is not None:
+        known = set(roster.get("codes") or []) | set(roster.get("outsiders") or [])
+        stray = sorted({c for v in answered_by_q.values() for c in v
+                        if CODE_SHAPE.search(c) and c not in known}, key=code_sort_key)
+        if stray:
+            log(f"  [提醒] 有 {len(stray)} 個學生編號不在對照表裡（例 {stray[0]}），"
+                "可能是用了別學期／別課程的對照表；繳交矩陣把它們排在最後。")
+    log(f"  繳交矩陣：{len(matrix['列'])} 列 × {len(matrix['題號'])} 題；"
+        f"名單內全部繳交 {summ['全部繳交']} 人、缺 1 題 {summ['缺1題']} 人、"
+        f"缺 2 題以上 {summ['缺2題以上']} 人"
+        + (f"；{matrix['註']}" if matrix.get("註") else ""))
     return result
+
+
+def answer_cell(q, compact=False):
+    """「作答/全班」欄：個人題 3/5 人；分組題 4/5 組；分組題＋組別 4/5 組（17/21 人）。"""
+    unit = q.get("作答單位", "人")
+    denom = q.get("作答分母", q.get("全班人數", 0))
+    if q.get("組員計算"):
+        return (f"{q['作答人數']}/{denom} 組（{q['組員作答人數']}/{q['全班人數']} 人）"
+                if compact else
+                f"{q['作答人數']}/{denom} 組（組員 {q['組員作答人數']}/{q['全班人數']} 人）")
+    return f"{q['作答人數']}/{denom} {unit}"
+
+
+def completion_md(result):
+    """summary.md 的「繳交概況」一節（只用學生編號）。"""
+    mx, sm = result.get("繳交矩陣") or {}, result.get("繳交概況") or {}
+    if not mx:
+        return []
+    L = ["## 繳交概況", "",
+         "- 規則：個人題＝本人有作答；分組題＝**該組只要有一人交，全組組員都算已交**"
+         + ("（依對照表「組別」欄）。" if mx.get("有組別資料") else "。"),
+         f"- 名單內 {sm.get('名單內人數', 0)} 人：全部繳交 {sm.get('全部繳交', 0)} 人、"
+         f"缺 1 題 {sm.get('缺1題', 0)} 人、缺 2 題以上 {sm.get('缺2題以上', 0)} 人"
+         + (f"；另有名單外作答者 {sm['名單外作答人數']} 人（排在最後）"
+            if sm.get("名單外作答人數") else "") + "。",
+         f"- 完整矩陣：`{COMPLETION_CSV}`（1＝已交、0＝未交）。"]
+    if mx.get("註"):
+        L.append(f"- {mx['註']}")
+    miss = sm.get("缺交清單") or []
+    if miss:
+        L += ["", "缺交 ≥1 題的學生編號：", ""]
+        for x in miss:
+            L.append(f"- {x['學生編號']}" + ("（名單外）" if x.get("名單外") else "")
+                     + f"：缺 {'、'.join(x['缺題'])}（{len(x['缺題'])} 題）")
+    else:
+        L.append("- 本週沒有缺交（可判定的題目全部都有交）。")
+    L.append("")
+    return L
 
 
 def write_outputs(result, work_dir, course_name="", week_label=""):
     with open(os.path.join(work_dir, "analysis.json"), "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
+    if result.get("繳交矩陣"):
+        write_completion_matrix(os.path.join(work_dir, COMPLETION_CSV), result["繳交矩陣"])
 
     L = [f"# {course_name}　學生作答分析摘要{('（' + week_label + '）') if week_label else ''}", "",
          f"- 資料夾：`{result.get('資料夾', '')}`",
@@ -763,9 +988,13 @@ def write_outputs(result, work_dir, course_name="", week_label=""):
             cov = "— | — | —"
         L.append(f"| {q['題號']} | {q['題目']}"
                  + ("（尚無作答）" if q.get("尚無作答") else "")
-                 + f" | {q['作答人數']}/{denom} {unit} | {q['作答率']}% | {cov} | "
+                 + f" | {answer_cell(q)} | {q['作答率']}% | {cov} | "
                  f"{q['提問總數']} |")
-    L += ["", "## 全班最常出現重點 TOP10", ""]
+    if any(q.get("組員計算") for q in result["題目"]):
+        L += ["", "> 分組題：該組只要有一人交，全組組員都算已交；作答率以「人」計"
+                  "（組員視為已交人數 / 全班人數），組數比另見 analysis.json 的「組作答率」。"]
+    L += [""] + completion_md(result)
+    L += ["## 全班最常出現重點 TOP10", ""]
     for i, (w, c) in enumerate(result["全班重點TOP10"], 1):
         L.append(f"{i}. {w}（{c} 次）")
     L += ["", "## 各題六個重點與四類提問", ""]

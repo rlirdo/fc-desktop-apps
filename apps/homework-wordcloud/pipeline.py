@@ -39,7 +39,7 @@ import datetime as dt
 
 APP_NAME = "HomeworkWordCloud"
 APP_TITLE = "學生作業文字雲"
-VERSION = "2.4.4"
+VERSION = "2.5.0"
 CREDIT = "NDHU 自資系 游豐兆 製作"          # 首頁右下角製作者字樣
 
 # --check-privacy 掃描時要看的純文字副檔名
@@ -385,17 +385,26 @@ def run_pipeline(cfg, input_dir, out_dir, week_label, deck_name,
     log("[1/5] 解析匯出檔（學生編號優先）並完成去識別化")
     log(f"  學生編號格式：{semester}_{course_code}_n"
         f"（輸入檔若已有 A 欄「學生編號」就直接沿用）")
+    pstats = {}
     index = PZ.parse_dir(input_dir, out_dir, semester=semester, course=course_code,
-                         log=log, codebook=codebook)
+                         log=log, codebook=codebook, stats=pstats)
     if codebook is not None:
         codebook.save_if_dirty(log=log)
     with open(os.path.join(out_dir, "questions_index.json"), "w", encoding="utf-8") as f:
         json.dump(index, f, ensure_ascii=False, indent=2)
 
     log("")
-    log("[2/5] 斷詞、六個重點／概念矩陣、四類提問分類")
+    log("[2/5] 斷詞、六個重點／概念矩陣、四類提問分類、各題繳交矩陣")
+    # 2.5：對照表（已編號輸入也可以傳）→ 組別與名單；名單外作答者要在 parse 之後才齊
+    rinfo = AN.roster_info(codebook)
+    if rinfo is not None:
+        log(f"  對照表：名單 {len(rinfo['codes'])} 人"
+            + (f"、有組別 {len(rinfo['group_of'])} 人（{len(set(rinfo['group_of'].values()))} 組）"
+               "→ 分組題以「該組有人交＝全組已交」換算成人"
+               if rinfo["has_groups"] else "、沒有「組別」欄 → 分組題維持以組計"))
     result = AN.analyse_dir(out_dir, index=index,
-                            top_concepts=int(cfg.get("top_concepts", 6) or 6), log=log)
+                            top_concepts=int(cfg.get("top_concepts", 6) or 6), log=log,
+                            roster=rinfo, week_codes=pstats.get("本週學生編號"))
     AN.write_outputs(result, out_dir, cfg.get("course_name", ""), week_label)
 
     log("")
@@ -461,6 +470,7 @@ def run_pipeline(cfg, input_dir, out_dir, week_label, deck_name,
     log(f"  簡報：{deck_name}（{total} 頁，每頁備忘稿都有逐字稿）")
     log("  摘要：summary.md　資料：analysis.json、Q*.csv")
     log("  每題兩份分析表：Q0N_concept_matrix.csv（概念矩陣）、Q0N_questions.csv（提問分類）")
+    log("  各題繳交矩陣：completion_matrix.csv（1＝已交、0＝未交；分組題＝該組有人交即全組已交）")
     log("=" * 60)
     return {"out_dir": out_dir, "pptx": pptx_path, "pages": total,
             "questions": len(result["題目"]), "wordclouds": len(wc_map),
@@ -1324,9 +1334,19 @@ def _selftest_zero_group(tmp, cfg, log, thumbs=False):
     prs = Presentation(r["pptx"])
     n_apx = sum(1 for q in qs if q.get("重點概念"))
     n_apx = min(-(-n_apx // DK.APX_PER_PAGE), DK.APX_MAX_PAGES) if n_apx else 0
-    want_pages = 3 + len(qs) + n_apx
+    n_done1 = len(DK.completion_pages(r["analysis"]))
+    want_pages = 3 + len(qs) + n_apx + n_done1
     if len(prs.slides) != want_pages:
-        problems.append(f"Z1 簡報 {len(prs.slides)} 頁，應為 3 + {len(qs)} 題 + 附錄 {n_apx}")
+        problems.append(f"Z1 簡報 {len(prs.slides)} 頁，應為 3 + {len(qs)} 題 + 附錄 {n_apx}"
+                        f" + 繳交矩陣 {n_done1}")
+    # 2.5：沒有對照表 → 分組題欄留空並在 CSV 檔尾註明；作答率維持以組計
+    mx1 = r["analysis"].get("繳交矩陣") or {}
+    if mx1.get("有組別資料") or not mx1.get("註") or "Q05" not in mx1.get("註", ""):
+        problems.append(f"Z1（無對照表）的繳交矩陣應註明分組題無法判定：{mx1.get('註')}")
+    with open(os.path.join(z1_out, "completion_matrix.csv"), encoding="utf-8-sig") as f:
+        z1_cm = f.read()
+    if "無法判定" not in z1_cm:
+        problems.append("Z1 completion_matrix.csv 檔尾沒有分組題的說明")
     zero_pages = []
     for i, sl in enumerate(prs.slides, 1):
         txt = "\n".join(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame)
@@ -1428,6 +1448,228 @@ def _selftest_zero_group(tmp, cfg, log, thumbs=False):
     return problems
 
 
+# ------------------------------------------------------------------ 2.5 分組名單／繳交矩陣
+# 以下全部是**合成資料**（虛構姓名、9900 號段學號），不是真實學生。
+_G_GROUPS = ["第1組", "第1組", "G2", "G2", "3", "3", ""]      # 第 7 位沒有組別（寫法刻意混用）
+_G_ROLES = ["組長", "", "組長", "", "", "", ""]
+_G_Q1_DONE = (1, 2, 3, 5, 7)                                   # 個人題有作答（另加名單外 101）
+
+
+def _g_codebook(path, with_groups=True):
+    """合成對照表：7 位名單內（3 組各 2 人＋1 人無組別）＋1 位名單外作答者（101）。"""
+    from core import roster as R
+    studs = []
+    for i in range(7):
+        seq = i + 1
+        name = (_R_STUDENTS[i][2] if i < len(_R_STUDENTS) else "庚小青")
+        studs.append(R.Student(seq=seq, code=f"{_R_SEM}_{_R_CRS}_{seq}", sid=f"99000000{seq}",
+                               name=name, klass="自資系大三",
+                               group=_G_GROUPS[i] if with_groups else "",
+                               role=_G_ROLES[i] if with_groups else ""))
+    outs = [R.Outsider(code=f"{_R_SEM}_{_R_CRS}_101", sid=_R_OUTSIDER[0], name=_R_OUTSIDER[1],
+                       src="合成.xlsx")]
+    R.write_codebook(path, studs, _R_SEM, _R_CRS, source="合成名單", rule="依序號",
+                     outsiders=outs, carry=False)
+    return R.load_codebook(path)
+
+
+def _g_personal_rows(done):
+    """NameMasker 輸出格式的個人題（A 欄學生編號、學號全 O、姓名已遮罩）。"""
+    texts = ["原子經濟性很重要，反應物要盡量都變成產物，不要變成廢棄物。",
+             "綠色化學十二原則裡我最有感的是源頭減量，先算好用量再倒試劑。為什麼一定要這樣算？",
+             "我覺得綠色溶劑可以取代有機溶劑，實驗室會比較安全。",
+             "廢棄物減量最重要，源頭減量比事後回收有效，這個公式怎麼算？",
+             "水質檢測要先看pH值，再看溶氧量，這樣才知道水污染的程度。",
+             "生成式AI可以幫忙整理文獻，但是資料還是要自己查證。"]
+    rows = [[None, "資料夾名稱", "繳交矩陣測試"], [None, "問題題型", "問答"],
+            [None, "題幹", "繳交矩陣測試（個人題）"], [],
+            [None, "問題類型", "", "", "第1題:問答題"],
+            [None, "問題敘述", "", "", "繳交矩陣測試（個人題）"], [],
+            ["學生編號", "學號", "姓名", "作答時間", "回答"]]
+    for k, (code, masked) in enumerate(done):
+        rows.append([code, "O" * 9, masked, "2026-09-14 20:00:00", texts[k % len(texts)]])
+    return rows
+
+
+def _selftest_groups(tmp, cfg, log, thumbs=False):
+    """2.5：對照表「組別」欄 → 分組題該組有人交＝全組已交、以人計作答率、各題繳交矩陣。
+
+    G1 已編號輸入（NameMasker 輸出）＋有組別的對照表：
+       個人題 Q01 由 1、2、3、5、7 號與名單外 101 作答；分組題 Q02 第 1、2 組作答、第 3 組未交。
+       → Q02 組員作答 4 人（1–4 號）、作答率 4/7＝57.1%、組作答率 66.7%、未分組 1 人；
+         completion_matrix 8 列（7 位名單內＋名單外 101 排最後；7 號無組別 → Q02＝0）；
+         summary 繳交概況：全部繳交 3、缺 1 題 3、缺 2 題以上 1；附錄繳交矩陣頁存在；
+         對照表不被改寫（已編號輸入不登記新的名單外）。
+    G2 同樣的輸入＋沒有組別欄的對照表 → 行為同 2.4.4（以組計 66.7%，矩陣分組題欄留空）。
+    G3 重新產生對照表（覆寫）時，既有對照表的組別／角色依學號保留。
+    """
+    from pptx import Presentation
+    from core import deck as DK
+    from core import roster as R
+    import csv as _csv
+    problems = []
+    C = lambda n: f"{_R_SEM}_{_R_CRS}_{n}"                      # noqa: E731
+    fam = "甲乙丙丁戊己庚"
+
+    # ---- 共同輸入（已編號）
+    g_in = os.path.join(tmp, "g_in")
+    os.makedirs(g_in, exist_ok=True)
+    done = [(C(n), f"{fam[n - 1]}O明") for n in _G_Q1_DONE] + [(C(101), "庚O強")]
+    p_rows = _g_personal_rows(done)
+    p_rows += [[], [None, "未作答學生"], ["學生編號", "學號", "姓名"]]
+    p_rows += [[C(n), "O" * 9, f"{fam[n - 1]}O明"] for n in range(1, 8) if n not in _G_Q1_DONE]
+    _xlsx_rows(os.path.join(g_in, "G1_個人題.xlsx"), p_rows)
+    groups = [("第01組", (C(1), C(2))), ("第02組", (C(3), C(4))), ("第03組", (C(5), C(6)))]
+    _xlsx_rows(os.path.join(g_in, "G2_分組題.xlsx"),
+               _group_rows(groups, [C(7)], [("第01組", _Z_GROUP_TEXTS[0]),
+                                            ("第02組", _Z_GROUP_TEXTS[1])], ["第03組"]),
+               link_rows=[(C(1), "甲小明", "990000001", "", 7)])
+
+    gcfg = dict(cfg)
+    gcfg.update({"semester": _R_SEM, "course_code": _R_CRS, "course_name": "合成測試課程"})
+
+    # ================= G1：有組別 ==========================================
+    cb = _g_codebook(os.path.join(tmp, "g_cb", R.codebook_filename(_R_SEM, _R_CRS)))
+    if not cb.has_groups() or cb.groups() != {1: [C(1), C(2)], 2: [C(3), C(4)], 3: [C(5), C(6)]}:
+        problems.append(f"Codebook.groups() 不符：{cb.groups()}")
+    mtime = os.path.getmtime(cb.path)
+    g1_out = os.path.join(tmp, "g1_out")
+    try:
+        r = run_pipeline(gcfg, g_in, g1_out, "合成週", "分組名單測試.pptx",
+                         thumbs=thumbs, log=lambda *a: None, codebook=cb)
+    except PipelineError as e:
+        return [f"G1（已編號輸入＋有組別對照表）不應被擋：{e}"]
+    by = {q["題號"]: q for q in r["analysis"]["題目"]}
+    q1, q2 = by.get("Q01", {}), by.get("Q02", {})
+    want_q2 = {"組員計算": True, "組員作答人數": 4, "組員全班人數": 6, "未分組人數": 1,
+               "作答率": 57.1, "組作答率": 66.7, "作答人數": 2, "作答分母": 3,
+               "作答單位": "組", "作答組別": [1, 2], "全部組別": [1, 2, 3], "全班人數": 7}
+    got_q2 = {k: q2.get(k) for k in want_q2}
+    if got_q2 != want_q2:
+        problems.append(f"G1 分組題欄位不符：{got_q2}")
+    if q2.get("組員作答學生編號") != [C(1), C(2), C(3), C(4)]:
+        problems.append(f"G1 組員作答學生編號不符：{q2.get('組員作答學生編號')}")
+    if q1.get("作答人數") != 6 or q1.get("名單內作答人數") != 5 or q1.get("作答率") != 71.4:
+        problems.append("G1 個人題應 6 人作答（名單內 5、名單外 1）、作答率 71.4%："
+                        f"{ {k: q1.get(k) for k in ('作答人數', '名單內作答人數', '作答率')} }")
+    # 已編號輸入＋對照表：學生編號照 A 欄、全班人數＝對照表人數、對照表不被改寫
+    with open(os.path.join(g1_out, "questions_index.json"), encoding="utf-8") as f:
+        q1_csv = next(x["檔名"] for x in json.load(f) if x["題號"] == "Q01")
+    with open(os.path.join(g1_out, q1_csv), encoding="utf-8-sig", newline="") as f:
+        q1_codes = {x["學生編號"] for x in _csv.DictReader(f)}
+    if q1_codes != {c for c, _m in done}:
+        problems.append(f"G1 已編號輸入的學生編號被改動：{sorted(q1_codes)}")
+    cb_back = R.load_codebook(cb.path)
+    if os.path.getmtime(cb.path) != mtime or len(cb_back.outside) != 1 or not cb_back.has_groups():
+        problems.append("G1 對照表被改寫（已編號輸入不應登記新的名單外作答者）")
+
+    # completion_matrix.csv
+    with open(os.path.join(g1_out, "completion_matrix.csv"), encoding="utf-8-sig",
+              newline="") as f:
+        cm = [row for row in _csv.reader(f)]
+    want_cm = [["學生編號", "組別", "Q01", "Q02", "繳交題數", "繳交率"],
+               [C(1), "第1組", "1", "1", "2", "100.0%"], [C(2), "第1組", "1", "1", "2", "100.0%"],
+               [C(3), "第2組", "1", "1", "2", "100.0%"], [C(4), "第2組", "0", "1", "1", "50.0%"],
+               [C(5), "第3組", "1", "0", "1", "50.0%"], [C(6), "第3組", "0", "0", "0", "0.0%"],
+               [C(7), "", "1", "0", "1", "50.0%"], [C(101), "名單外", "1", "0", "1", "50.0%"]]
+    if cm != want_cm:
+        problems.append(f"G1 completion_matrix.csv 內容不符：{cm}")
+    sm = r["analysis"].get("繳交概況") or {}
+    if (sm.get("全部繳交"), sm.get("缺1題"), sm.get("缺2題以上")) != (3, 3, 1):
+        problems.append(f"G1 繳交概況應為 3／3／1，實際 {sm.get('全部繳交')}／{sm.get('缺1題')}／"
+                        f"{sm.get('缺2題以上')}")
+    with open(os.path.join(g1_out, "summary.md"), encoding="utf-8") as f:
+        md = f.read()
+    for need in ("## 繳交概況", "全部繳交 3 人、缺 1 題 3 人、缺 2 題以上 1 人",
+                 f"{C(6)}：缺 Q01、Q02", f"{C(101)}（名單外）：缺 Q02",
+                 "2/3 組（組員 4/7 人）"):
+        if need not in md:
+            problems.append(f"G1 summary.md 缺少「{need}」")
+    with open(os.path.join(g1_out, "analysis.json"), encoding="utf-8") as f:
+        aj = json.load(f)
+    if "繳交矩陣" not in aj or "組員作答人數" not in aj["題目"][1]:
+        problems.append("G1 analysis.json 沒有繳交矩陣／組員欄位")
+
+    # 簡報：分組題頁、總覽、附錄繳交矩陣頁
+    prs = Presentation(r["pptx"])
+    texts = ["\n".join(sh.text_frame.text for sh in sl.shapes if sh.has_text_frame)
+             for sl in prs.slides]
+    if not any("作答 2 / 3 組（組員 4 / 7 人視為已交）　作答率 57.1%" in t for t in texts):
+        problems.append("G1 分組題頁副標沒有「作答 2 / 3 組（組員 4 / 7 人視為已交）　作答率 57.1%」")
+    if "2/3 組（4/7 人）" not in texts[1]:
+        problems.append("G1 總覽頁沒有「2/3 組（4/7 人）」")
+    done_pages = [i for i, t in enumerate(texts) if "核對各題繳交矩陣" in t]
+    if len(done_pages) != 1:
+        problems.append(f"G1 應有 1 頁繳交矩陣附錄，實際 {len(done_pages)}")
+    else:
+        t = texts[done_pages[0]]
+        for need in ("Q02(組)", "繳交題數", C(101), "名單外", "●", "○"):
+            if need not in t:
+                problems.append(f"G1 繳交矩陣頁缺少「{need}」")
+        note = prs.slides[done_pages[0]].notes_slide.notes_text_frame.text
+        if not (100 <= len(note) <= 250) or "全組" not in note or "最後" not in note:
+            problems.append(f"G1 繳交矩陣頁逐字稿 {len(note)} 字或缺分組規則／名單外說明")
+    q2_note = next((sl.notes_slide.notes_text_frame.text for sl, t in zip(prs.slides, texts)
+                    if "組員 4 / 7 人視為已交" in t), "")
+    if "只要該組有人交，全組都算已交" not in q2_note:
+        problems.append("G1 分組題逐字稿沒有講「只要該組有人交，全組都算已交」")
+    for i, sl in enumerate(prs.slides, 1):
+        nt = sl.notes_slide.notes_text_frame.text
+        if not nt.strip() or len(nt) > 350:
+            problems.append(f"G1 第 {i} 頁逐字稿空白或超過 350 字（{len(nt)}）")
+    want_pages = 3 + 2 + 1 + min(-(-sum(1 for q in by.values() if q.get("重點概念"))
+                                    // DK.APX_PER_PAGE), DK.APX_MAX_PAGES)
+    if len(prs.slides) != want_pages:
+        problems.append(f"G1 簡報 {len(prs.slides)} 頁，應為 {want_pages}")
+    lay = DK.layout_scan(prs)
+    if lay["out_of_bounds"] or lay["overlaps"]:
+        problems.append(f"G1 版面：出界 {len(lay['out_of_bounds'])}、重疊 {len(lay['overlaps'])} "
+                        f"{(lay['out_of_bounds'] + lay['overlaps'])[:3]}")
+    h1 = check_privacy(g1_out, input_dir=g_in, log=lambda *a: None, codebook=cb_back)
+    if h1:
+        problems.append(f"G1 隱私命中 {h1} 處")
+        check_privacy(g1_out, input_dir=g_in, log=log, codebook=cb_back)
+    log(f"  G1（已編號輸入＋組別）：分組題 2/3 組＝組員 {q2.get('組員作答人數')}/7 人、"
+        f"作答率 {q2.get('作答率')}%（組 {q2.get('組作答率')}%）、矩陣 {len(cm) - 1} 列、"
+        f"繳交概況 {sm.get('全部繳交')}/{sm.get('缺1題')}/{sm.get('缺2題以上')}、"
+        f"{len(prs.slides)} 頁、出界 {len(lay['out_of_bounds'])}、重疊 {len(lay['overlaps'])}、隱私 {h1}")
+
+    # ================= G2：對照表沒有組別欄 → 2.4.4 行為 ====================
+    cb2 = _g_codebook(os.path.join(tmp, "g_cb2", R.codebook_filename(_R_SEM, _R_CRS)),
+                      with_groups=False)
+    g2_out = os.path.join(tmp, "g2_out")
+    r2 = run_pipeline(gcfg, g_in, g2_out, "合成週", "無組別測試.pptx",
+                      thumbs=False, log=lambda *a: None, codebook=cb2)
+    q2b = {q["題號"]: q for q in r2["analysis"]["題目"]}.get("Q02", {})
+    if q2b.get("組員計算") or q2b.get("作答率") != 66.7 or q2b.get("作答單位") != "組" \
+            or "組員作答人數" in q2b:
+        problems.append("G2（無組別欄）分組題應維持以組計 66.7%："
+                        f"{ {k: q2b.get(k) for k in ('作答率', '作答單位', '組員計算')} }")
+    mx2 = r2["analysis"].get("繳交矩陣") or {}
+    if any(row["值"][1] != "" for row in mx2.get("列", [])) or "Q02" not in (mx2.get("註") or ""):
+        problems.append("G2 無組別時分組題欄應留空並註明")
+    ov2 = "\n".join(sh.text_frame.text for sh in Presentation(r2["pptx"]).slides[1].shapes
+                    if sh.has_text_frame)
+    if "2 / 3 組" not in ov2:
+        problems.append("G2 總覽頁應維持「2 / 3 組」")
+    log(f"  G2（無組別欄）：分組題作答率 {q2b.get('作答率')}%（以組計）、矩陣分組題欄留空")
+
+    # ================= G3：重新產生對照表時保留組別／角色 =====================
+    g3 = os.path.join(tmp, "g3")
+    os.makedirs(g3, exist_ok=True)
+    _g_codebook(os.path.join(g3, R.codebook_filename(_R_SEM, _R_CRS)))
+    roster_x = _write_roster_xlsx(os.path.join(g3, "名單.xlsx"))      # 名單沒有組別欄
+    cb3 = R.prepare_codebook(roster_x, _R_SEM, _R_CRS, overwrite=True, out_dir=g3,
+                             log=lambda *a: None)
+    cb3b = R.load_codebook(cb3.path)
+    if cb3b.groups() != {1: [C(1), C(2)], 2: [C(3), C(4)], 3: [C(5), C(6)]} or \
+            [s.role for s in cb3b.students][:3] != ["組長", "", "組長"]:
+        problems.append(f"G3 重新產生對照表後組別／角色沒有保留：{cb3b.groups()}")
+    log(f"  G3（覆寫對照表）：組別保留 {len(cb3b.groups())} 組、角色保留 "
+        f"{sum(1 for s in cb3b.students if s.role)} 人")
+    return problems
+
+
 def selftest(log=print, keep=False):
     """用內建合成資料（NameMasker 2.0 格式）跑完整流程並驗收。
 
@@ -1450,6 +1692,9 @@ def selftest(log=print, keep=False):
      10. **2.4 0 人作答／分組題**：0 人作答題進 analysis.json／questions_index.json／
          summary.md、有自己一頁「尚無作答」、頁數＝3＋題數＋附錄；分組題以「組」為
          作答單位；原始分組題＋名單時組別不被登記成名單外、作答內容姓名換編號、隱私 0 命中
+     11. **2.5 分組名單與繳交矩陣**：已編號輸入＋含組別對照表（3 組、1 人無組別）→
+         組員作答人數、以人計作答率、completion_matrix（含名單外列、無組別者分組題 0）、
+         summary 繳交概況、附錄繳交矩陣頁；無組別欄 → 同 2.4.4；覆寫對照表保留組別
     """
     from pptx import Presentation
     tmp = tempfile.mkdtemp(prefix="hwwc_selftest_[課程] ")   # 刻意含中括號與空白：回歸測試 glob 跳脫
@@ -1472,7 +1717,10 @@ def selftest(log=print, keep=False):
         n_apx = 0
         if bool(cfg.get("appendix_matrix", True)) and n_apx_q:
             n_apx = min(-(-n_apx_q // _DK.APX_PER_PAGE), _DK.APX_MAX_PAGES)
-        expect = 3 + n_q + n_apx
+        n_done = len(_DK.completion_pages(result))          # 2.5 繳交矩陣附錄
+        expect = 3 + n_q + n_apx + n_done
+        if n_done != 1:
+            problems.append(f"示範資料（{n_q} 題）應有 1 頁繳交矩陣附錄，實際 {n_done}")
         if not os.path.exists(pptx):
             problems.append("沒有產生 pptx")
             pages = 0
@@ -1482,7 +1730,8 @@ def selftest(log=print, keep=False):
             pages = len(prs.slides)
         if pages != expect:
             problems.append(f"簡報 {pages} 頁，應該是 {expect} 頁"
-                            f"（3 + 題數 {n_q}{f' + 附錄 {n_apx}' if n_apx else ''}）")
+                            f"（3 + 題數 {n_q}{f' + 附錄 {n_apx}' if n_apx else ''}"
+                            f" + 繳交矩陣 {n_done}）")
 
         # ---- 2. 每題兩個 CSV
         for q in qs:
@@ -1628,6 +1877,15 @@ def selftest(log=print, keep=False):
             problems += _selftest_zero_group(tmp, cfg, log)
         except Exception as e:
             problems.append(f"0 人作答／分組題檢查失敗：{e}")
+            log(traceback.format_exc())
+
+        # ---- 11. 2.5 分組名單（對照表組別欄）與繳交矩陣
+        log("")
+        log("分組名單與繳交矩陣檢查（2.5）")
+        try:
+            problems += _selftest_groups(tmp, cfg, log)
+        except Exception as e:
+            problems.append(f"分組名單與繳交矩陣檢查失敗：{e}")
             log(traceback.format_exc())
 
         log("")
