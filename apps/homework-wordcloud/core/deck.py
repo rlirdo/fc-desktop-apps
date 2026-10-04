@@ -597,7 +597,7 @@ def _right_choice_cards(s, ctx, col):
         right.append(("", 11, MUTED, False, 1.15, 2))
         for o in sub["選項"][:per]:
             left.append((fit_one_line("　" + o["選項"], 3.40, 10), 10, TEXT, False, 1.15, 3))
-            right.append((f"{o['人數']} 人（{o['百分比']}%）", 10, col, True, 1.15, 3))
+            right.append((f"{o['人數']} {ctx.get('作答單位', '人')}（{o['百分比']}%）", 10, col, True, 1.15, 3))
     if len(subs) > n_show:
         left.append((f"其餘 {len(subs) - n_show} 個子題見輸出資料夾的 CSV",
                      10, MUTED, True, 1.15, 0))
@@ -721,7 +721,7 @@ def slide_question(prs, ctx, wc_png, idx):
                    [(fit_one_line(o["選項"], 3.70, 13), 13, TEXT, False, 1.25, 4)
                     for o in opts])
             column(s, 4.60, 3.88, 2.02, 1.10,
-                   [(f"{o['人數']} 人（{o['百分比']}%）", 13, col, True, 1.25, 4)
+                   [(f"{o['人數']} {ctx.get('作答單位', '人')}（{o['百分比']}%）", 13, col, True, 1.25, 4)
                     for o in opts], align=PP_ALIGN.RIGHT)
         textbox(s, 0.78, 5.18, iw, 0.90, ctx.get("圖說", ""), size=12, color=MUTED,
                 align=PP_ALIGN.LEFT, line_spacing=1.30)
@@ -1241,6 +1241,7 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
                     f"{q.get('提問人數', 0)} 人（其他 {q.get('其他提問數', 0)} 則）"),
             "提問": asks,
             "選項分佈": opts,
+            "作答單位": q.get("作答單位", "人"),      # 2.4.4：分組題的選項分佈單位用「組」
             "選項標題": f"各子題選項分佈（共 {len(sub_opts)} 個子題）",
             "子題選項": sub_opts,
             "答對標題": ans_title,

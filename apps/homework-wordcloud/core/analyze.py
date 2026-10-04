@@ -799,7 +799,7 @@ def write_outputs(result, work_dir, course_name="", week_label=""):
             head = f"  - {s['子題號']} {s['子題題目'][:40]}　有效 {s['有效作答數']} 列；"
             if s.get("選項分佈"):
                 L.append(head + "選項分佈：" +
-                         "、".join(f"{o['選項']} {o['人數']}人({o['百分比']}%)"
+                         "、".join(f"{o['選項']} {o['人數']}{q.get('作答單位', '人')}({o['百分比']}%)"
                                   for o in s["選項分佈"][:6]))
             else:
                 L.append(head + "TOP：" + "、".join(w for w, _ in s["TOP詞"][:6]))
