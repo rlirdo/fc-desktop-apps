@@ -30,6 +30,7 @@ pipeline.py — 「學生作業文字雲」流程核心（可被 GUI 或 CLI 呼
   * 原始 xlsx 只留在使用者自己的輸入資料夾，工具不會上傳任何資料。
 """
 import os
+import re
 import sys
 import json
 import shutil
@@ -39,7 +40,7 @@ import datetime as dt
 
 APP_NAME = "HomeworkWordCloud"
 APP_TITLE = "學生作業文字雲"
-VERSION = "2.5.0"
+VERSION = "2.6.0"
 CREDIT = "NDHU 自資系 游豐兆 製作"          # 首頁右下角製作者字樣
 
 # --check-privacy 掃描時要看的純文字副檔名
@@ -410,7 +411,18 @@ def run_pipeline(cfg, input_dir, out_dir, week_label, deck_name,
     log("")
     log("[3/5] 產生文字雲")
     wc_map = WG.generate_all(out_dir, min_words=int(cfg.get("min_words_for_cloud", 5) or 5),
-                             log=log)
+                             log=log, index=index)
+    # 2.6：文字雲圖檔名（wc/Q{nn}_{題目}_{ID}_wc.png）補進 analysis.json 與 questions_index.json，
+    #      讓所有引用到的檔名一致（字數不足、沒有產圖的題目記空字串）
+    wc_names = {q: "wc/" + os.path.basename(pth) for q, pth in wc_map.items()}
+    for q in result["題目"]:
+        q["文字雲檔"] = wc_names.get(q["題號"], "")
+    for rec in index:
+        rec["文字雲檔"] = wc_names.get(rec.get("題號"), "")
+    with open(os.path.join(out_dir, "analysis.json"), "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    with open(os.path.join(out_dir, "questions_index.json"), "w", encoding="utf-8") as f:
+        json.dump(index, f, ensure_ascii=False, indent=2)
 
     log("")
     log("[4/5] 組裝簡報")
@@ -454,6 +466,11 @@ def run_pipeline(cfg, input_dir, out_dir, week_label, deck_name,
             "輸入資料夾": os.path.basename(os.path.normpath(input_dir)),
             "輸出資料夾": os.path.basename(os.path.normpath(out_dir)),
             "簡報": deck_name, "頁數": total, "題數": len(result["題目"]),
+            # 2.6：各題輸出檔名主幹 Q{nn}_{題目全名}_{題目ID}
+            "各題檔名": [{"題號": q["題號"], "題目ID": q.get("題目ID", ""),
+                       "作答檔": q.get("作答檔", ""), "概念矩陣檔": q.get("概念矩陣檔", ""),
+                       "提問檔": q.get("提問檔", ""), "文字雲檔": q.get("文字雲檔", "")}
+                      for q in result["題目"]],
             "學生編號格式": f"{semester}_{course_code}_n",
             "學生編號來源": ("固定對照表（名單 "
                        f"{codebook.count} 人、名單外 {len(codebook.outside)} 人）"
@@ -469,7 +486,8 @@ def run_pipeline(cfg, input_dir, out_dir, week_label, deck_name,
     log(f"完成！輸出資料夾：{out_dir}")
     log(f"  簡報：{deck_name}（{total} 頁，每頁備忘稿都有逐字稿）")
     log("  摘要：summary.md　資料：analysis.json、Q*.csv")
-    log("  每題兩份分析表：Q0N_concept_matrix.csv（概念矩陣）、Q0N_questions.csv（提問分類）")
+    log("  每題檔名：Q0N_{題目全名}_{題目ID}.csv（作答）、…_concept_matrix.csv（概念矩陣）、"
+        "…_questions.csv（提問分類）、wc/…_wc.png（文字雲）")
     log("  各題繳交矩陣：completion_matrix.csv（1＝已交、0＝未交；分組題＝該組有人交即全組已交）")
     log("=" * 60)
     return {"out_dir": out_dir, "pptx": pptx_path, "pages": total,
@@ -860,6 +878,106 @@ def _selftest_tokens(log):
         f"長度 {AN.MIN_LEN}–{AN.MAX_LEN} 字、詞性 {len(AN.POS_KEEP)} 類、"
         f"停用詞 {len(AN.STOPWORDS)} 個，錯誤 {len(problems)} 個")
     log(f"       範例關鍵字：{'、'.join(dict.fromkeys(toks))}")
+    return problems
+
+
+def _selftest_filenames(tmp, cfg, log):
+    """2.6 輸出檔名規則：Q{nn}_{題目全名}_{題目ID}（全部用合成題名與假 ID）。
+
+    單元：不合法字元換半形空格、連續空白合併、結尾「.」、全形括號保留、80 字截斷、
+          8／10 位 ID（10 位取前 8）、9 位不算 ID、無 ID 省略、下載清單題名優先、
+          已具名輸入檔取題目、清單「檔案」欄補 ID、題目裡的 email 遮罩。
+    端對端：合成輸入＋下載清單（題名含 / 與 * 、超長題名）→ 作答 CSV／概念矩陣／
+          提問／文字雲檔名都照新規則，questions_index 與 analysis 一致，完整路徑 < 260 字。
+    """
+    from core import parse_zuvio as PZ
+    problems = []
+
+    def eq(got, want, what):
+        if got != want:
+            problems.append(f"檔名規則｜{what}：得到「{got}」，應為「{want}」")
+
+    # ---- 單元：題目清理
+    eq(PZ.file_title("校外參訪Field Trip 調查（12/9 和平電力永續能源）"),
+       "校外參訪Field Trip 調查（12 9 和平電力永續能源）", "斜線換空格、全形括號保留")
+    eq(PZ.file_title('甲\\乙/丙:丁*戊?己"庚<辛>壬|癸'), "甲 乙 丙 丁 戊 己 庚 辛 壬 癸",
+       "九種不合法字元")
+    eq(PZ.file_title("  合成//題目 :: 一  \t二  "), "合成 題目 一 二", "連續空白合併、去頭尾")
+    eq(PZ.file_title("合成題目..."), "合成題目", "去掉結尾的點")
+    eq(PZ.file_title("合成題目. . "), "合成題目", "結尾點與空白交錯")
+    eq(PZ.file_title("合成題目?"), "合成題目", "結尾的不合法字元")
+    long_t = "合成超長題目" + "一二三四五六七八九十" * 12
+    eq(len(PZ.file_title(long_t)), 80, "超長題目截到 80 字")
+    eq(PZ.file_title("甲" * 79 + " 乙丙"), "甲" * 79, "截斷後結尾空白去掉")
+    # ---- 單元：題目 ID
+    for name, want in (("19990101.xlsx", "19990101"),
+                       ("Q03_合成題（複習）_19990103.xlsx", "19990103"),
+                       ("W3-Q01_合成題_1999010102.xlsx", "19990101"),
+                       ("1999010103.xlsx", "19990101"),
+                       ("Q01_合成問答一.xlsx", ""),
+                       ("Q01_合成題_199901011.xlsx", ""),          # 9 位不是 ID
+                       ("Q01_合成題19990101.xlsx", "")):           # 黏在字後面不算
+        eq(PZ.question_id_from_name(name), want, f"題目 ID（{name}）")
+    eq(PZ.title_from_name("W4-Q01_合成調查（12 9 參訪）_1999010402.xlsx"),
+       "合成調查（12 9 參訪）", "已具名輸入檔的題目")
+    eq(PZ.question_file_stem("Q04", "合成調查（12/9 參訪）", "19990104"),
+       "Q04_合成調查（12 9 參訪）_19990104", "主幹格式")
+    eq(PZ.question_file_stem("Q01", "合成問答一", ""), "Q01_合成問答一", "無 ID 省略尾碼")
+    eq(PZ.question_file_stem("Q02", "", "19990102"), "Q02_未命名_19990102", "空題目")
+    # ---- 單元：題目來源優先順序
+    man = ({"19990104": "合成調查（12/9 參訪）", "19990105": "合成清單題"},
+           {"合成無號題.xlsx": "19990105"})
+    eq(PZ.output_stem_for("19990104.xlsx", "Q04", "合成檔內題幹很長的一段說明", man)[0],
+       "Q04_合成調查（12 9 參訪）_19990104", "下載清單題名優先")
+    eq(PZ.output_stem_for("W3-Q03_合成題（複習）_1999010302.xlsx", "Q03", "合成檔內題幹")[0],
+       "Q03_合成題（複習）_19990103", "已具名輸入檔（10 位 ID）")
+    eq(PZ.output_stem_for("19990106.xlsx", "Q06", "合成檔內題幹 甲/乙")[0],
+       "Q06_合成檔內題幹 甲 乙_19990106", "退回匯出檔內題目")
+    eq(PZ.output_stem_for("合成無號題.xlsx", "Q05", "", man)[0],
+       "Q05_合成清單題_19990105", "清單「檔案」欄補 ID")
+    eq(PZ.output_stem_for("合成無號題.xlsx", "Q07", "")[0], "Q07_合成無號題", "退回輸入檔名、無 ID")
+    st = PZ.output_stem_for("19990107.xlsx", "Q07", "合成題 請寄 nobody@example.org")[0]
+    if "@" in st:
+        problems.append(f"檔名規則｜題目裡的 email 沒有遮罩：{st}")
+
+    # ---- 端對端：合成輸入＋下載清單
+    in_dir = os.path.join(tmp, "fn_in")
+    os.makedirs(in_dir, exist_ok=True)
+    src = sample_input_dir()
+    fns = sorted(f for f in os.listdir(src) if f.lower().endswith(".xlsx"))
+    for fn in fns:
+        shutil.copy(os.path.join(src, fn), in_dir)
+    ids = [PZ.question_id_from_name(f) for f in fns]
+    titles = {ids[0]: "合成調查（12/9 參訪*二）", ids[1]: long_t}
+    with open(os.path.join(in_dir, "download_manifest.json"), "w", encoding="utf-8") as f:
+        json.dump({"items": [{"qid": k, "題名": v} for k, v in titles.items()]}, f,
+                  ensure_ascii=False)
+    out_dir = os.path.join(tmp, "fn_out")
+    r = run_pipeline(cfg, in_dir, out_dir, "合成週", "檔名測試.pptx", thumbs=False,
+                     log=lambda *a: None)
+    qs = r["analysis"]["題目"]
+    want = {"Q01": f"Q01_合成調查（12 9 參訪 二）_{ids[0]}",
+            "Q02": f"Q02_{PZ.file_title(long_t)}_{ids[1]}"}
+    for q in qs:
+        stem = os.path.splitext(q.get("作答檔", ""))[0]
+        if q["題號"] in want:
+            eq(stem, want[q["題號"]], f"端對端 {q['題號']} 檔名主幹")
+        elif not re.match(r"^Q\d{2}_.+_\d{8}$", stem):
+            problems.append(f"檔名規則｜端對端 {q['題號']} 主幹格式不對：{stem}")
+        files = [q.get("作答檔"), q.get("概念矩陣檔"), q.get("提問檔")] + \
+            ([q["文字雲檔"]] if q.get("文字雲檔") else [])
+        for fn in files:
+            p = os.path.join(out_dir, *str(fn).split("/"))
+            if not os.path.exists(p):
+                problems.append(f"檔名規則｜端對端少了 {fn}")
+            # 實際部署路徑約 110 字，這裡以「題目部分 ≤ 80 字」換算：主幹 ≤ 93、最長後綴 19
+            if len(os.path.basename(p)) > 3 + 1 + PZ.FILE_TITLE_MAX + 1 + 8 + 19:
+                problems.append(f"檔名規則｜檔名太長：{os.path.basename(p)}")
+    stale = [f for f in os.listdir(out_dir) if re.match(r"^Q\d{2}_concept_matrix\.csv$", f)]
+    if stale:
+        problems.append(f"檔名規則｜還有舊式短檔名：{stale}")
+    log(f"  輸出檔名（2.6）：單元 20 餘項＋端對端 {len(qs)} 題，"
+        f"例：{qs[0].get('作答檔') if qs else '—'}；錯誤 {len(problems)} 個")
     return problems
 
 
@@ -1675,7 +1793,7 @@ def selftest(log=print, keep=False):
 
     驗收項目：
       1. 簡報頁數 = 3（封面／總覽／結尾）＋ 題數（＋附錄頁，每頁 2 題、最多 3 頁）
-      2. 每題都有 Q0N_concept_matrix.csv 與 Q0N_questions.csv
+      2. 每題都有 Q0N_{題目}_{ID}_concept_matrix.csv 與 …_questions.csv（2.6 檔名）
       3. 每個覆蓋率都介於 0–1，且「≥1 個 ≥ ≥3 個 ≥ 全部都提到」
       3b.**2.2**：每題開放題重點數 = min(6, 候選數)；概念矩陣欄數 = 1 + 重點數 + 1；
           候選不足 6 個時有幾個列幾個（不補空字串、不報錯）
@@ -1695,6 +1813,9 @@ def selftest(log=print, keep=False):
      11. **2.5 分組名單與繳交矩陣**：已編號輸入＋含組別對照表（3 組、1 人無組別）→
          組員作答人數、以人計作答率、completion_matrix（含名單外列、無組別者分組題 0）、
          summary 繳交概況、附錄繳交矩陣頁；無組別欄 → 同 2.4.4；覆寫對照表保留組別
+     12. **2.6 輸出檔名**：Q{nn}_{題目全名}_{題目ID}（不合法字元、10 位 ID、無 ID、
+         超長題目、下載清單題名優先）；作答／概念矩陣／提問／文字雲檔名與
+         questions_index、analysis、summary、run_meta 一致
     """
     from pptx import Presentation
     tmp = tempfile.mkdtemp(prefix="hwwc_selftest_[課程] ")   # 刻意含中括號與空白：回歸測試 glob 跳脫
@@ -1733,11 +1854,42 @@ def selftest(log=print, keep=False):
                             f"（3 + 題數 {n_q}{f' + 附錄 {n_apx}' if n_apx else ''}"
                             f" + 繳交矩陣 {n_done}）")
 
-        # ---- 2. 每題兩個 CSV
+        # ---- 2. 每題兩個 CSV（2.6：檔名＝作答 CSV 的主幹 Q{nn}_{題目}_{ID} ＋ 後綴）
+        from core import parse_zuvio as _PZ
         for q in qs:
-            for fn in (f"{q['題號']}_concept_matrix.csv", f"{q['題號']}_questions.csv"):
-                if not os.path.exists(os.path.join(out_dir, fn)):
-                    problems.append(f"少了 {fn}")
+            stem = os.path.splitext(q.get("作答檔", ""))[0]
+            if not re.match(r"^Q\d{2}_.+_\d{8}$", stem):
+                problems.append(f"{q['題號']} 作答檔名不是 Q{{nn}}_{{題目}}_{{ID}}：{q.get('作答檔')}")
+            for fn in (q.get("作答檔", ""), q.get("概念矩陣檔", ""), q.get("提問檔", "")):
+                if not fn or not os.path.exists(os.path.join(out_dir, fn)):
+                    problems.append(f"少了 {fn or q['題號'] + ' 的檔名欄位'}")
+            if q.get("概念矩陣檔") != f"{stem}_concept_matrix.csv" or \
+                    q.get("提問檔") != f"{stem}_questions.csv":
+                problems.append(f"{q['題號']} 分析表檔名與作答檔不一致："
+                                f"{q.get('概念矩陣檔')}／{q.get('提問檔')}")
+            wcf = q.get("文字雲檔", "")
+            if wcf and (wcf != f"wc/{stem}_wc.png"
+                        or not os.path.exists(os.path.join(out_dir, *wcf.split("/")))):
+                problems.append(f"{q['題號']} 文字雲檔名不一致或不存在：{wcf}")
+            # 示範檔 19990101.xlsx … → 題目 ID 取自輸入檔名
+            if q.get("題目ID") != _PZ.question_id_from_name(q.get("來源檔", "")):
+                problems.append(f"{q['題號']} 題目 ID 對不上輸入檔名：{q.get('題目ID')}")
+        with open(os.path.join(out_dir, "questions_index.json"), encoding="utf-8") as f:
+            _idx = {x["題號"]: x for x in json.load(f)}
+        for q in qs:
+            x = _idx.get(q["題號"], {})
+            if (x.get("檔名"), x.get("概念矩陣檔"), x.get("提問檔"), x.get("文字雲檔")) != \
+                    (q.get("作答檔"), q.get("概念矩陣檔"), q.get("提問檔"), q.get("文字雲檔")):
+                problems.append(f"{q['題號']} questions_index.json 與 analysis.json 的檔名不一致")
+        with open(os.path.join(out_dir, "summary.md"), encoding="utf-8") as f:
+            _sm = f.read()
+        for q in qs:
+            if q.get("重點概念") and q.get("概念矩陣檔") not in _sm:
+                problems.append(f"summary.md 沒有引用 {q.get('概念矩陣檔')}")
+        with open(os.path.join(out_dir, "run_meta.json"), encoding="utf-8") as f:
+            _rm = json.load(f).get("各題檔名") or []
+        if [x.get("作答檔") for x in _rm] != [q.get("作答檔") for q in qs]:
+            problems.append("run_meta.json 的「各題檔名」與 analysis.json 不一致")
 
         # ---- 3. 覆蓋率介於 0–1
         for q in qs:
@@ -1766,15 +1918,15 @@ def selftest(log=print, keep=False):
                                 f"應該是 min(6, 候選 {cand}) = {want_n}")
             if len(focus) == 6:
                 n_focus += 1
-            cm = os.path.join(out_dir, f"{q['題號']}_concept_matrix.csv")
+            cm = os.path.join(out_dir, q.get("概念矩陣檔") or f"{q['題號']}_concept_matrix.csv")
             if os.path.exists(cm):
                 with open(cm, encoding="utf-8-sig", newline="") as f:
                     head = next(_csv2.reader(f), [])
                 if len(head) != len(focus) + 2:
-                    problems.append(f"{q['題號']}_concept_matrix.csv 有 {len(head)} 欄，"
+                    problems.append(f"{os.path.basename(cm)} 有 {len(head)} 欄，"
                                     f"應該是學生編號 + {len(focus)} 概念 + 提到重點數")
                 if head[:1] != ["學生編號"] or head[-1:] != ["提到重點數"]:
-                    problems.append(f"{q['題號']}_concept_matrix.csv 欄位標題不對：{head}")
+                    problems.append(f"{os.path.basename(cm)} 欄位標題不對：{head}")
         if n_focus < 1:
             problems.append("沒有任何一題抓到 6 個重點概念")
 
@@ -1886,6 +2038,15 @@ def selftest(log=print, keep=False):
             problems += _selftest_groups(tmp, cfg, log)
         except Exception as e:
             problems.append(f"分組名單與繳交矩陣檢查失敗：{e}")
+            log(traceback.format_exc())
+
+        # ---- 12. 2.6 輸出檔名 Q{nn}_{題目全名}_{題目ID}
+        log("")
+        log("輸出檔名規則檢查（2.6）")
+        try:
+            problems += _selftest_filenames(tmp, cfg, log)
+        except Exception as e:
+            problems.append(f"輸出檔名規則檢查失敗：{e}")
             log(traceback.format_exc())
 
         log("")

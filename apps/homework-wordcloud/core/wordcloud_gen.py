@@ -8,7 +8,7 @@ wordcloud_gen.py — 每題產一張文字雲 PNG。
           ※ 一律用「系統既有字型」，不打包微軟正黑體（授權限制）。
   - 頻率＝該題全班答案詞頻（高 → 字愈大）
   - 配色：綠色化學色票（navy / deep / teal / green / moss / gold），白底，頻率高者用深色
-  - 輸出：<out_dir>/Q0N_wc.png，1600×900
+  - 輸出：<out_dir>/Q0N_{題目}_{題目ID}_wc.png（2.6 起），1600×900
 """
 import os
 import re
@@ -131,15 +131,19 @@ def build(freqs, out_png, log=print):
     return True
 
 
-def generate_all(work_dir, out_dir=None, min_words=5, log=print):
-    """對 work_dir 內每個 Q*.csv 產一張文字雲，回傳 {題號: png 路徑}。"""
+def generate_all(work_dir, out_dir=None, min_words=5, log=print, index=None):
+    """對每題作答 CSV 產一張文字雲，回傳 {題號: png 路徑}。
+
+    2.6：圖檔名沿用作答 CSV 的檔名主幹 → `wc/Q{nn}_{題目}_{ID}_wc.png`；
+    有 index（questions_index）時照 index 的檔名取檔。
+    """
     out_dir = out_dir or os.path.join(work_dir, "wc")
     os.makedirs(out_dir, exist_ok=True)
     made = {}
-    paths = [p for p in sorted(glob.glob(os.path.join(glob.escape(work_dir), "Q*.csv")))
-             if not os.path.basename(p).endswith(("_concept_matrix.csv", "_questions.csv"))]
+    paths = AN.question_csv_paths(work_dir, index)
     for csv_path in paths:
         qno = os.path.basename(csv_path)[:3]
+        stem = os.path.splitext(os.path.basename(csv_path))[0]
         freqs = Counter()
         with open(csv_path, encoding="utf-8-sig", newline="") as f:
             rows = list(csv.DictReader(f))
@@ -155,7 +159,7 @@ def generate_all(work_dir, out_dir=None, min_words=5, log=print):
         if len(freqs) < min_words:
             log(f"  {qno} 詞數 {len(freqs)} 不足 {min_words}，略過文字雲（該頁改用純排版）")
             continue
-        png = os.path.join(out_dir, f"{qno}_wc.png")
+        png = os.path.join(out_dir, f"{stem}_wc.png")
         build(freqs, png, log=log)
         made[qno] = png
         log(f"  {qno} -> wc\\{os.path.basename(png)}（{len(freqs)} 個詞）")

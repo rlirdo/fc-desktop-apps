@@ -1454,8 +1454,8 @@ def build_deck(analysis, out_path, meta, wc_map, log=print):
                    "矩陣": q.get("概念矩陣", {})} for q in group]
         n_show = sum(len(t["學生編號"]) for t in tables)
         rest = len(appendix_qs) - apx_shown
-        note = ("完整矩陣見輸出資料夾 Q0N_concept_matrix.csv；"
-                "提問明細見 Q0N_questions.csv；表內一律使用學生編號。")
+        note = ("完整矩陣見輸出資料夾 Q0N_…_concept_matrix.csv；"
+                "提問明細見 Q0N_…_questions.csv；表內一律使用學生編號。")
         if rest > 0 and pi == n_apx:
             note = f"另有 {rest} 題的概念矩陣受版面限制未列，請看 CSV；" + note
         page_tag = f"（{pi} / {n_apx}）" if n_apx > 1 else ""

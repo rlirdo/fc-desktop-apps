@@ -679,6 +679,25 @@ def write_completion_matrix(path, matrix):
 
 
 # ---------------------------------------------------------------- 主流程
+DERIVED_SUFFIXES = ("_concept_matrix.csv", "_questions.csv")
+
+
+def question_csv_paths(work_dir, index=None):
+    """每題作答 CSV 的路徑（依題號排序）。
+
+    2.6：檔名改成 `Q{nn}_{題目全名}_{題目ID}.csv`，題目本身可能以 questions 等字結尾，
+    所以有 index（questions_index）時一律照 index 的「檔名」取檔，不靠萬用字元猜；
+    沒有 index 才退回 2.5 的 Q*.csv 掃描（排除各題的分析表）。
+    """
+    if index:
+        paths = [os.path.join(work_dir, r["檔名"]) for r in index if r.get("檔名")]
+        paths = [p for p in paths if os.path.exists(p)]
+        if paths:
+            return sorted(paths, key=lambda p: os.path.basename(p)[:3])
+    return [p for p in sorted(glob.glob(os.path.join(glob.escape(work_dir), "Q*.csv")))
+            if not os.path.basename(p).endswith(DERIVED_SUFFIXES)]
+
+
 def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print,
                 roster=None, week_codes=None):
     """讀 work_dir 下的 Q*.csv，寫出 analysis.json、summary.md 與每題兩份 CSV。
@@ -695,11 +714,12 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print,
     has_groups = bool(roster and roster.get("has_groups"))
     group_of = (roster or {}).get("group_of") or {}
 
-    paths = [p for p in sorted(glob.glob(os.path.join(glob.escape(work_dir), "Q*.csv")))
-             if not os.path.basename(p).endswith(("_concept_matrix.csv", "_questions.csv"))]
+    paths = question_csv_paths(work_dir, index)
 
     for path in paths:
         qno = os.path.basename(path)[:3]
+        # 2.6：每題的分析表沿用作答 CSV 的檔名主幹 Q{nn}_{題目}_{ID}
+        stem = os.path.splitext(os.path.basename(path))[0]
         with open(path, encoding="utf-8-sig", newline="") as f:
             rows = list(csv.DictReader(f))
 
@@ -728,7 +748,7 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print,
         concepts, per_student, cfreq, cspk = pick_concepts(valid_rows, top_n=top_concepts)
         keys, mat = concept_matrix(concepts, per_student)
         n_ans = len(keys)
-        cm_name = f"{qno}_concept_matrix.csv"
+        cm_name = f"{stem}_concept_matrix.csv"
         if concepts:
             write_concept_matrix(os.path.join(work_dir, cm_name), concepts, keys, mat)
         else:
@@ -749,7 +769,7 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print,
 
         # ---- 提問抽取與分類
         qrecs, qstats = extract_questions(valid_rows)
-        q_name = f"{qno}_questions.csv"
+        q_name = f"{stem}_questions.csv"
         write_questions(os.path.join(work_dir, q_name), qrecs)
 
         questions = [t[:60] for t in texts if any(k in t for k in QUESTION_MARK)]
@@ -836,6 +856,8 @@ def analyse_dir(work_dir, index=None, top_n=15, top_concepts=6, log=print,
             "題型": m.get("題型", ""),
             "測驗型": bool(m.get("測驗型")) or not open_labels,
             "來源檔": m.get("來源檔", ""),
+            "題目ID": m.get("題目ID", ""),
+            "作答檔": os.path.basename(path),
             "作答人數": answered,
             "全班人數": klass,
             "作答率": rate,

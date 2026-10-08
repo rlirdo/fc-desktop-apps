@@ -55,7 +55,7 @@ import openpyxl
 
 from .mask import (StudentCoder, build_roster, build_replacer, mask_in_text,
                    mask_name, mask_id, is_student_id, normalize_course_code,
-                   normalize_semester, NOT_A_NAME)
+                   normalize_semester, NOT_A_NAME, mask_ids_in_text)
 from .roster import group_no
 
 CSV_COLS = ["題號", "子題號", "子題題目", "學生編號", "學號", "姓名", "作答時間", "作答內容"]
@@ -109,9 +109,127 @@ def clean_title(s, qtype="", limit=TITLE_MAX):
 
 
 def safe_name(s, n=12):
+    """2.5 以前的短檔名（只留著給舊程式呼叫；2.6 起輸出檔名改用 question_file_stem）。"""
     s = re.sub(r"https?://\S+", "", s or "")
     s = re.sub(r'[<>:"/\\|?*\x00-\x1f\s]+', "", s)
     return s[:n] or "untitled"
+
+
+# ------------------------------------------------------------------ 2.6 輸出檔名
+#   每題的輸出檔名＝「Q{nn}_{題目全名}_{題目ID}」，例：
+#     Q03_AI協作及測驗_Ch 1_環境化學與地球系統五大圈（複習）_20159319
+#     Q04_校外參訪Field Trip 調查（12 9 和平電力永續能源）_20177528
+FILE_TITLE_MAX = 80                         # 題目部分最多 80 字（Windows 路徑 260 字限制）
+WIN_BAD_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+QID_RE = re.compile(r"(?:^|[_\-\s])(\d{8}|\d{10})$")      # 檔名主幹結尾的 8 或 10 位數字
+NAMED_INPUT_RE = re.compile(r"^(?:W\d{1,2}-)?Q\d{1,3}_(.+?)_(\d{8}|\d{10})$")
+
+
+def file_title(s, limit=FILE_TITLE_MAX):
+    """題目 → 可以放進 Windows 檔名的字串。
+
+    * `\\ / : * ? " < > |` 與控制字元換成一個半形空格（「12/9」→「12 9」）
+    * 連續空白合併成一個、去頭尾空白、去掉結尾的「.」（Windows 不允許）
+    * 全形括號等其他字元原樣保留
+    * 超過 limit 字就截到 limit 字（含）
+    """
+    s = WIN_BAD_CHARS.sub(" ", str(s or ""))
+    s = re.sub(r"\s+", " ", s).strip()
+
+    def tidy(x):
+        while x and x[-1] in ". ":
+            x = x[:-1]
+        return x.strip()
+
+    s = tidy(s)
+    if len(s) > limit:
+        s = tidy(s[:limit])
+    return s
+
+
+def question_id_from_name(name):
+    """輸入檔名裡的 Zuvio 題目 ID（8 位數字）。
+
+    `20159319.xlsx`、`Q03_…_20159319.xlsx` → 20159319；
+    NameMasker 另存的 `…_2015931902.xlsx`（10 位）→ 取前 8 位。找不到回傳 ""。
+    """
+    stem = os.path.splitext(os.path.basename(str(name or "")))[0].strip()
+    m = QID_RE.search(stem)
+    return m.group(1)[:8] if m else ""
+
+
+def title_from_name(name):
+    """已具名輸入檔 `[W3-]Q03_{題目}_{ID}.xlsx` 的題目部分；不是這種格式回傳 ""。"""
+    stem = os.path.splitext(os.path.basename(str(name or "")))[0].strip()
+    m = NAMED_INPUT_RE.match(stem)
+    return m.group(1).strip() if m else ""
+
+
+def load_manifest_titles(input_dir):
+    """輸入資料夾內 `download_manifest*.json` → ({題目ID: 題名}, {檔名: 題目ID})。
+
+    清單格式：list，或 dict 的 items／questions；每筆至少有 qid 與 題名（選填 檔案）。
+    沒有清單就回傳兩個空 dict。
+    """
+    import json
+    titles, files = {}, {}
+    try:
+        names = sorted(os.listdir(input_dir))
+    except OSError:
+        return titles, files
+    for fn in names:
+        if not (fn.lower().startswith("download_manifest") and fn.lower().endswith(".json")):
+            continue
+        try:
+            with open(os.path.join(input_dir, fn), encoding="utf-8-sig") as f:
+                mj = json.load(f)
+        except Exception:
+            continue
+        items = mj if isinstance(mj, list) else \
+            ((mj.get("items") or mj.get("questions") or []) if isinstance(mj, dict) else [])
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            qid = re.sub(r"\D", "", str(it.get("qid") or it.get("題目ID") or ""))[:8]
+            title = str(it.get("題名") or it.get("題目") or "").strip()
+            if len(qid) != 8:
+                continue
+            if title:
+                titles.setdefault(qid, title)
+            if it.get("檔案"):
+                files.setdefault(os.path.basename(str(it["檔案"])), qid)
+    return titles, files
+
+
+def output_stem_for(path, qno, title_in_file="", manifest=None, masker=None):
+    """決定某個輸入檔的輸出檔名主幹，回傳 (主幹, 檔名用題目, 題目ID, 題目來源)。
+
+    題目全名的來源依序：
+      1. 下載清單 download_manifest*.json 以題目 ID 對到的「題名」（Zuvio 題目列表上的名稱）
+      2. 已具名輸入檔 `[W3-]Q03_{題目}_{ID}.xlsx` 檔名中的題目
+      3. 匯出檔內的題目全名（題幹第一行，去網址；或資料夾名稱）
+      4. 輸入檔名（去掉結尾的 ID）
+    題目 ID：輸入檔名結尾的 8 位數字（10 位取前 8 位）→ 下載清單「檔案」欄 → 省略。
+    masker：題目也要去識別化（名冊姓名換學生編號；≥9 碼數字與 email 一律改 O）。
+    """
+    titles, files = manifest or ({}, {})
+    masker = masker or mask_ids_in_text
+    base = os.path.basename(path)
+    qid = question_id_from_name(base) or files.get(base, "")
+    stem = os.path.splitext(base)[0]
+    cands = [(titles.get(qid, "") if qid else "", "下載清單題名"),
+             (title_from_name(base), "輸入檔名"),
+             (title_in_file, "匯出檔內題目"),
+             (re.sub(r"[_\-\s]*\d{8,10}$", "", re.sub(r"^W\d{1,2}-", "", stem)), "輸入檔名")]
+    title, src = next(((t, s) for t, s in cands if file_title(t)), ("", "無"))
+    title = mask_ids_in_text(masker(title) or "")
+    return question_file_stem(qno, title, qid), file_title(title), qid, src
+
+
+def question_file_stem(qno, title, qid=""):
+    """每題輸出檔的檔名主幹：`Q{nn}_{題目}_{題目ID}`（沒有 ID 就省略 `_ID`）。"""
+    t = file_title(title) or "未命名"
+    return f"{qno}_{t}" + (f"_{qid}" if qid else "")
 
 
 def pick_sheet(wb):
@@ -508,12 +626,29 @@ def scan_inputs(input_dir):
     return files, raw
 
 
-def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
+def _name_fields(path, qno, title_in_file, manifest, rep):
+    """2.6：rec 裡跟輸出檔名有關的欄位（檔名主幹／題目 ID／檔名用題目與來源）。"""
+    stem, ftitle, qid, src = output_stem_for(path, qno, title_in_file, manifest,
+                                             masker=lambda t: mask_in_text(t, rep))
+    return {"檔名主幹": stem, "題目ID": qid, "檔名題目": ftitle, "檔名題目來源": src}
+
+
+def full_title_in_file(meta, base=""):
+    """匯出檔內的題目全名：題幹（或資料夾名稱）的第一行，去網址與開頭題型字樣，不截短。"""
+    raw = meta.get("題幹") or meta.get("資料夾名稱") or base or ""
+    first = next((ln for ln in str(raw).splitlines() if ln.strip()), "")
+    return clean_title(first, meta.get("問題題型", ""), limit=10 ** 6)
+
+
+def parse_file(path, no, semester="", course="", coder=None, extra_names=None,
+               manifest=None):
     """單一檔案 → (rows, rec)；rows 是已去識別化的 CSV 列，rec 是統計資訊。
 
     coder       共用的編號器（2.1 建議傳 mask.FixedCoder，整批檔案共用一顆，
                 編號才會跨檔一致）；None 時退回 2.0 的 StudentCoder。
     extra_names 名單內**所有**真實姓名（SPEC §1.4：即使這個檔沒出現也要換掉）。
+    manifest    2.6：`load_manifest_titles(輸入資料夾)` 的結果（題目 ID → 題名），
+                用來決定輸出檔名 `Q{nn}_{題目}_{ID}`；None＝沒有下載清單。
     """
     qno = f"Q{no:02d}"
     base = os.path.splitext(os.path.basename(path))[0]
@@ -554,6 +689,7 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
                "姓名遮罩": "已套用(第2字改O)", "遮罩列數": n_masked,
                "子題": [{"label": s, "text": "", "作答數": sum(1 for r in out_rows if r[1] == s)}
                         for s in sorted({r[1] for r in out_rows})]}
+        rec.update(_name_fields(path, qno, "", manifest, rep))
         return out_rows, rec
 
     # -------------------------------------------------- xlsx
@@ -731,6 +867,8 @@ def parse_file(path, no, semester="", course="", coder=None, extra_names=None):
         "姓名遮罩": "已套用(第2字改O)",
         "遮罩列數": n_masked,
     }
+    # 2.6：輸出檔名用的題目全名（p["meta"] 的題幹／資料夾名稱在上面已經遮罩過）
+    rec.update(_name_fields(path, qno, full_title_in_file(p["meta"]), manifest, rep))
     return out_rows, rec
 
 
@@ -761,10 +899,13 @@ def parse_dir(input_dir, out_dir, semester="", course="", log=print, codebook=No
     no = 0
     union_codes = set()          # 本週所有輸入檔出現過的不重複學生編號
     roster_n = 0                 # 名冊檔的人數（若有名冊，以它為準）
+    manifest = load_manifest_titles(input_dir)      # 2.6：題目 ID → Zuvio 題名
+    if manifest[0]:
+        log(f"  下載清單：{len(manifest[0])} 題的題名（輸出檔名優先用它）")
     for path in files:
         no += 1
         rows, rec = parse_file(path, no, semester=semester, course=course,
-                               coder=coder, extra_names=extra_names)
+                               coder=coder, extra_names=extra_names, manifest=manifest)
         union_codes |= set(rec.get("學生編號清單") or [])
         if rec.get("狀態") == "略過":
             no -= 1
@@ -773,8 +914,13 @@ def parse_dir(input_dir, out_dir, semester="", course="", log=print, codebook=No
             log(f"  [略過] {os.path.basename(path)}　{rec.get('原因', '非作業檔')}"
                 + (f"（名冊 {rec['名冊人數']} 人，拿來當全班人數）" if rec.get("名冊人數") else ""))
             continue
-        fn = f"{rec['題號']}_{safe_name(rec.get('題目', ''))}.csv"
+        # 2.6：Q{nn}_{題目全名}_{題目ID}.csv（2.5 以前是 safe_name 截成 12 字的短檔名）
+        stem = rec.get("檔名主幹") or question_file_stem(rec["題號"], rec.get("題目", ""))
+        rec["檔名主幹"] = stem
+        fn = f"{stem}.csv"
         rec["檔名"] = fn
+        rec["概念矩陣檔"] = f"{stem}_concept_matrix.csv"
+        rec["提問檔"] = f"{stem}_questions.csv"
         with open(os.path.join(out_dir, fn), "w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(CSV_COLS)
