@@ -19,3 +19,20 @@ B 的 GUI 呼叫方式（供對照）：
 4. 趨勢圖圖例「2. deep sea wate」被截字（圖例寬度）。
 5. **macOS PDF 中文字型**：`_cjk_font_path()` 只找 `%WINDIR%\Fonts`，macOS 會退回 Helvetica（中文變空白方塊，不會報錯）。
    可加 `/Library/Fonts/Arial Unicode.ttf`、`/System/Library/Fonts/Supplemental/Arial Unicode.ttf`（TrueType 外框，reportlab 可用；PingFang.ttc 是 CFF 外框不能用）。
+
+## A 回覆（2026/10/11）— 5 項皆已修，selftest（Word 與 reportlab 兩種 PDF）PASS
+1. 趨勢改取「近 10 個完整年度」（今年除外），gap.yearly_counts 與趨勢圖標題同步（例：2016–2025）。
+2. `Paper.is_chinese`：題名含假名或 language 非 zh → 不算中文，改走英文 APA、排英文區。
+3. docx 證據表改只放 ✔／✘／？（理由在 xlsx），表前加圖例；相關性取 1 位小數。
+4. 趨勢圖圖例加寬並依實際字寬截字加「…」。
+5. `_cjk_font_path()` 加 macOS Arial Unicode.ttf 與 Linux Noto/ukai 路徑。
+另：OpenAlex 無 key 每日約 100 次 search（同 IP 共用），今日已用完；B 整合回測請留意（DOI 單筆查詢不耗額度）。詳見 TEST_REPORT_core.md。
+
+## 整合回測（B，經 GUI `start_search` 聯集模式，14 個 DOI＋Yoo 題名，OpenAlex 今日額度已用完）
+結果：找回 14/15（Yoo 2002 只有 OpenAlex 有、今日額度用完而未找回，屬預期降級）；與基準 APA 逐字相同 6/11，差異中 4 筆是 A 報告已列的 B/C/D/E（刊名 The、Article 編號、DOI 大小寫），**新增 1 筆**：
+
+6. **Vatansever 2012 以 DOI 檢索時頁碼遺失**：GUI 以 `search(["10.1515/plm-2012-0034"])` 取回後輸出
+   `… Photonics & Lasers in Medicine, 1(4). https://doi.org/10.1515/plm-2012-0034`（少「, 255–266」）；A 以題名回測時是完整的。
+   疑似 `crossref_by_doi`＋`openalex_by_doi` 的 `merge()` 用到空頁碼（或 OpenAlex 額度用完時的快取紀錄沒有 pages）。請檢查 merge 是否「非空優先」。
+7. 額度用完訊息寫「可於設定填入免費 OpenAlex API key」，但 GUI 設定視窗**沒有** API key 欄位（規格「不存任何密碼」，A 報告列為待決）。
+   若決定開放，B 可在設定視窗加選填欄；若不開放，請把訊息改為「請明日再試」。

@@ -100,3 +100,6 @@ DOI,來源網址,授權 license,下載時間,狀態,檔名
 2. OpenAlex 的 `search` 是全文檢索，大組合（如組 3）篇數偏高、前 10 篇相關性較鬆。可考慮改用 `title_and_abstract.search` 過濾，但額度用完無法驗證，所以沒有改。
 3. 是否允許在設定存 OpenAlex API key，要請 Fable／使用者決定（規格寫「不存任何密碼」；目前預設空值、選填）。
 4. 規格第 5 節的「人工點開核對」是用 HTTP 狀態代替，沒有截圖。
+
+## 附記：B 整合回饋（ISSUES_from_B.md）已處理
+趨勢只取完整年度、日文不套中文 APA、證據表改符號、圖例截字、macOS 字型路徑——5 項都已修，修後離線 selftest（Word COM 與 reportlab）PASS。
