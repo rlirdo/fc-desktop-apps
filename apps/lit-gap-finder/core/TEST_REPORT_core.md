@@ -103,3 +103,13 @@ DOI,來源網址,授權 license,下載時間,狀態,檔名
 
 ## 附記：B 整合回饋（ISSUES_from_B.md）已處理
 趨勢只取完整年度、日文不套中文 APA、證據表改符號、圖例截字、macOS 字型路徑——5 項都已修，修後離線 selftest（Word COM 與 reportlab）PASS。
+
+## 第 2 輪修正驗證（2026/10/11，修正內容見 README_core.md「2026/10/11 修正」）
+- **離線 selftest_core**：封鎖網路後執行，reportlab 與 Word 兩種 PDF 都 PASS。包含 6 項新的回歸測試＋8 個匯出檔，共 14 個 OK、0 個 FAIL。
+- **Vatansever 2012 DOI 回歸**（`scripts\t5_round2.py`，連網）：
+  - 一般 DOI 路徑：`… Photonics & Lasers in Medicine, 1(4), 255–266. https://doi.org/10.1515/plm-2012-0034`，與查證表 R1 逐字相同。
+  - 模擬 OpenAlex 失敗（只剩 Crossref）：enrich 前重現 B 的錯誤輸出 `…, 1(4). https://…`；enrich 後以 S2 補上 `255–266`，與查證表 R1 逐字相同。
+- **趨勢異常值**：用 B 的實際回應（far infrared 該年 52,796）畫圖，該點以紅圈截頂並註記「異常值 52,796」，Y 軸刻度依正常年份（最高 4,741）。全部失敗時，圖上明示「OpenAlex 趨勢查詢失敗」，改用本次結果繪製。
+- **缺口矩陣全失敗**（模擬 429 額度用完）：`status="failed"`，所有 gap 都是 None，xlsx 矩陣格為「查詢失敗」，說明頁寫「全部查詢失敗（不可解讀為無缺口／0 篇）」。
+- **reportlab 證據表**：欄寬自動分配、長 DOI 與作者名在格內折行，✔／✘／①–⑩ 正常顯示。
+- PII guard OK；`openalex_api_key` 只出現在 config.py／net.py 原始碼，不出現在任何匯出檔。

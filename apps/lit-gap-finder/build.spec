@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller spec — FC文獻缺口搜尋工具 FC LitGap Finder 1.0.0
+"""PyInstaller spec — FC文獻缺口搜尋工具 FC LitGap Finder 1.0.1
 
 打包：
     pyinstaller --noconfirm build.spec
@@ -100,7 +100,7 @@ if IS_MAC:
         info_plist={
             "CFBundleName": NAME,
             "CFBundleDisplayName": "FC文獻缺口搜尋工具",
-            "CFBundleShortVersionString": "1.0.0",
+            "CFBundleShortVersionString": "1.0.1",
             "NSHighResolutionCapable": True,
         },
     )

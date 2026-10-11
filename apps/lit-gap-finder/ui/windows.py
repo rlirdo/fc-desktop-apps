@@ -11,6 +11,8 @@ from .credit import CREDIT, CreditToplevel
 
 APP_TITLE = "FC文獻缺口搜尋工具 FC LitGap Finder"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+KEY_HINT = ("不填也能用，但每日檢索額度較低（免金鑰同一網路每天約 100 次 OpenAlex 檢索）。"
+            "金鑰只存在本機設定檔，不會寫進任何匯出檔或查詢紀錄。")
 WEIGHT_LABELS = [("title", "標題命中（每次 ×）"), ("abstract", "摘要命中（每次 ×）"),
                  ("cited", "被引次數 log(1+n) ×"), ("recency", "年份近度 ×")]
 
@@ -29,7 +31,7 @@ class SettingsWindow(CreditToplevel):
     """設定：Unpaywall email、章節清單、相關性權重、快取清除。存到 %APPDATA%\\FCLitGap\\config.json。"""
 
     def __init__(self, parent, cfg, on_save=None, modal=True):
-        super().__init__(parent, "設定", size=(640, 560), modal=modal)
+        super().__init__(parent, "設定", size=(700, 640), modal=modal)
         self.cfg = dict(cfg)
         self.on_save = on_save
         tk.Label(self.body, text="設定", font=T.FT, fg=T.NAVY, bg=T.BG, anchor="w").pack(fill="x")
@@ -44,6 +46,16 @@ class SettingsWindow(CreditToplevel):
              "也作為 Crossref／OpenAlex mailto")
         self.var_dir = tk.StringVar(value=self.cfg.get("last_dir", ""))
         _row(g, 1, "上次存檔資料夾", ttk.Entry(g, textvariable=self.var_dir, width=40))
+        self.var_key = tk.StringVar(value=self.cfg.get("openalex_api_key", "") or "")
+        kf = tk.Frame(g, bg=T.BG)
+        self.ent_key = ttk.Entry(kf, textvariable=self.var_key, width=32, show="•")
+        self.ent_key.pack(side="left", fill="x", expand=True)
+        self.var_show = tk.BooleanVar(value=False)
+        tk.Checkbutton(kf, text="顯示", variable=self.var_show, font=T.FS, bg=T.BG,
+                       command=lambda: self.ent_key.config(show="" if self.var_show.get() else "•")).pack(side="left")
+        _row(g, 2, "OpenAlex API 金鑰\n（選填，只存本機）", kf)
+        tk.Label(g, text=KEY_HINT, font=T.FS, fg=T.GREY, bg=T.BG, justify="left", anchor="w",
+                 wraplength=520).grid(row=3, column=1, columnspan=2, sticky="w")
 
         lf = tk.LabelFrame(self.body, text=" 章節標籤清單（一行一個） ", font=T.FB, fg=T.TEAL, bg=T.BG)
         lf.pack(fill="both", expand=True, pady=(8, 4))
@@ -95,7 +107,11 @@ class SettingsWindow(CreditToplevel):
         if "未分類" not in chapters:
             chapters.append("未分類")
         cfg = dict(self.cfg)
+        key = self.var_key.get().strip()
+        if key and (len(key) < 8 or any(c.isspace() for c in key)):
+            raise ValueError("OpenAlex API 金鑰格式不正確（不可含空白）")
         cfg.update({"email": email, "mailto": email, "last_dir": self.var_dir.get().strip(),
+                    "openalex_api_key": key,
                     "chapters": chapters,
                     "weights": {k: float(v.get()) for k, v in self.var_w.items()}})
         return cfg

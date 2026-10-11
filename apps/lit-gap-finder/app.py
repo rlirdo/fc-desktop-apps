@@ -30,7 +30,7 @@ import zipfile
 APP_NAME = "FC文獻缺口搜尋工具"
 APP_EN = "FC LitGap Finder"
 EXE_NAME = "FCLitGapFinder"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 CREDIT = "NDHU自資系游豐兆製作"
 
 for _s in (sys.stdout, sys.stderr):
@@ -149,7 +149,7 @@ def _json_email_violations(path):
     return bad
 
 
-def privacy_scan(folder):
+def privacy_scan(folder, secrets=None):
     """回傳 (檢查檔數, 問題清單)。"""
     problems = []
     who = set()
@@ -170,6 +170,7 @@ def privacy_scan(folder):
     except Exception:  # noqa: BLE001
         pass
     home = os.path.expanduser("~")
+    secrets = [x for x in (secrets or []) if x and len(x) >= 8]
     n = 0
     for root, _dirs, files in os.walk(folder):
         for f in files:
@@ -195,6 +196,9 @@ def privacy_scan(folder):
                     problems.append(f"{where} 含疑似身分證字號：{m}")
                 for m in set(PHONE_RE.findall(t)):
                     problems.append(f"{where} 含疑似手機號碼：{m}")
+                for sec in secrets:
+                    if sec in t:
+                        problems.append(f"{where} 含 OpenAlex API 金鑰（金鑰只可存在本機設定檔）")
                 for w in who:
                     if w in t:
                         problems.append(f"{where} 含本機帳號／電腦名稱「{w}」")
@@ -377,6 +381,51 @@ def _gui_selftest(BK, papers, gap, log):
             if not ok:
                 problems.append(f"{label}視窗 CREDIT 位置不正確：{why}")
             w.destroy()
+        # 設定視窗：OpenAlex 金鑰欄（選填、遮蔽顯示、寫入 config）
+        sw = windows.SettingsWindow(root, mw.cfg, modal=False)
+        root.update()
+        if sw.ent_key.cget("show") != "•":
+            problems.append("OpenAlex 金鑰欄未遮蔽顯示")
+        sw.var_key.set("abcdefgh12345678")
+        c2 = sw.collect()
+        sw.var_key.set("")
+        c3 = sw.collect()
+        sw.destroy()
+        if c2.get("openalex_api_key") != "abcdefgh12345678" or c3.get("openalex_api_key") != "":
+            problems.append("設定視窗 openalex_api_key 寫入不正確")
+        log("  設定視窗 OpenAlex 金鑰欄：遮蔽顯示、可填可清空 OK")
+        # 缺口矩陣全部失敗 → 狀態列「缺口矩陣查詢失敗」
+        orig_gap = BK.B.gap_matrix
+        BK.B.gap_matrix = lambda groups, threshold=5, **kw: {
+            "pairs": [{"groups": (0, 1), "count": None, "gap": None, "query": "", "top": []}],
+            "triples": [], "trend": {}, "groups": groups, "threshold": threshold, "status": "failed",
+            "errors": ["selftest 模擬失敗"], "budget_exhausted": False}
+        try:
+            mw.txt_kw.delete("1.0", "end")
+            mw.txt_kw.insert("1.0", "serpentine; 蛇紋石\ndeep sea water")
+            mw.start_gap()
+            t0 = time.time()
+            while mw.task is not None and not mw.task.finished and time.time() - t0 < 10:
+                root.update()
+                time.sleep(0.02)
+            root.update()
+        finally:
+            BK.B.gap_matrix = orig_gap
+        log(f"  缺口矩陣全部失敗時狀態列：{mw.var_status.get()}")
+        if mw.var_status.get() != "缺口矩陣查詢失敗":
+            problems.append("缺口矩陣失敗時狀態列文字不正確")
+        # 章節下拉：點章節欄 → 自動展開
+        t.tree.xview_moveto(1.0)
+        root.update()
+        t.edit_chapter(t.tree.get_children()[0])
+        t0 = time.time()
+        while time.time() - t0 < 0.4:
+            root.update()
+            time.sleep(0.02)
+        if t._editor is None:
+            problems.append("章節下拉編輯器展開後被關閉")
+        log(f"  章節下拉：編輯器{'存在' if t._editor is not None else '已關閉'}")
+        t._close_editor()
         # 手動加入：建立 Paper
         ma = windows.ManualAddWindow(root, mw.chapters(), modal=False)
         for k, v in {"authors": "王小明、陳大華", "year": "2021", "title": "測試題名", "container": "臺灣化學教育",
@@ -427,8 +476,23 @@ def _gui_selftest(BK, papers, gap, log):
     return problems
 
 
+def _configured_secrets():
+    """使用者本機設定的 OpenAlex 金鑰（只用來比對輸出檔，不印出）。"""
+    keys = [os.environ.get("FCLITGAP_OPENALEX_KEY", "")]
+    try:
+        from core import config as _cfg
+        keys.append(_cfg.load().get("openalex_api_key", "") or "")
+    except Exception:  # noqa: BLE001
+        pass
+    return [k for k in keys if k]
+
+
+FAKE_KEY = "selftest-fake-openalex-key-0000"
+
+
 def run_selftest(check_privacy_only=False, folder=None):
     os.environ["LITGAP_NO_DIALOG"] = "1"
+    real_secrets = _configured_secrets() if (check_privacy_only and folder) else []
     tmp = tempfile.mkdtemp(prefix="FCLitGap_selftest_")
     os.environ["FCLITGAP_HOME"] = os.path.join(tmp, "home")       # 不碰使用者真實設定與快取
     out(f"{EXE_NAME} {VERSION} — {'隱私檢查' if check_privacy_only else '自我測試'}")
@@ -436,7 +500,7 @@ def run_selftest(check_privacy_only=False, folder=None):
     problems = []
     try:
         if check_privacy_only and folder:
-            n, pv = privacy_scan(folder)
+            n, pv = privacy_scan(folder, real_secrets)
             out(f"[隱私] 檢查 {n} 個檔案：{'OK' if not pv else '發現 %d 個問題' % len(pv)}")
             for x in pv:
                 out("  ✘ " + x)
@@ -444,14 +508,27 @@ def run_selftest(check_privacy_only=False, folder=None):
         from ui import backend as BK
         mode = BK.init()
         out(f"[核心] {BK.STATUS}（mode={mode}）")
+        cfg0 = BK.call(BK.config_load)
+        cfg0["openalex_api_key"] = FAKE_KEY          # 假金鑰：驗證只存本機、不進任何輸出檔
+        BK.call(BK.config_save, cfg0)
         if mode != "real" and os.environ.get("LITGAP_BACKEND", "auto") != "stub":
             problems.append("真核心模組無法匯入：" + BK.STATUS)
+        try:
+            from core.selftest_core import regression_checks
+            reg = regression_checks()
+            out(f"[0] 核心回歸測試 {len(reg)} 項：{sum(1 for x in reg if str(x).startswith('OK'))} 項通過")
+            for x in reg:
+                out("  " + str(x))
+                if not str(x).startswith("OK"):
+                    problems.append("核心回歸測試：" + str(x))
+        except ImportError:
+            out("[0] 核心回歸測試：此版核心未提供，略過")
         out("[1] 樣本→指標→缺口→匯出")
         papers, gap, res, out_dir = _sample_pipeline(BK, tmp, out)
         out(f"[2] 匯出檔檢查（{out_dir}）")
         problems += _check_exports(res, out_dir, out)
         out("[3] 隱私檢查")
-        n, pv = privacy_scan(out_dir)
+        n, pv = privacy_scan(out_dir, [FAKE_KEY])
         out(f"  檢查 {n} 個檔案；問題 {len(pv)} 個")
         for x in pv:
             out("  ✘ " + x)

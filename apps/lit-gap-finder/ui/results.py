@@ -192,10 +192,28 @@ class ResultsTable(tk.Frame):
             self._close_editor()
         cb.bind("<<ComboboxSelected>>", done)
         cb.bind("<Escape>", lambda e: self._close_editor())
-        cb.bind("<FocusOut>", lambda e: self.after(150, self._close_editor))
+        def maybe_close():
+            # 下拉清單展開時焦點會移到 combobox 的 popdown 子視窗，這時不能關掉編輯器
+            if self._editor is not cb:
+                return
+            try:
+                f = str(self.tk.call("focus"))
+            except tk.TclError:
+                f = ""
+            if f.startswith(str(cb)):
+                return
+            self._close_editor()
+        cb.bind("<FocusOut>", lambda e: self.after(200, maybe_close))
         cb.focus_set()
+        self.after(30, lambda: self.post_editor())
+
+    def post_editor(self):
+        """展開章節下拉清單（點章節欄時自動展開，省一次點擊）。"""
+        cb = self._editor
+        if cb is None:
+            return
         try:
-            cb.event_generate("<Button-1>")
+            cb.tk.call("ttk::combobox::Post", cb)
         except tk.TclError:
             pass
 

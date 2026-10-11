@@ -108,8 +108,6 @@ def parse_crossref(item: dict) -> Paper:
         abstract=clean_text(item.get("abstract", "")), cited_by=int(item.get("is-referenced-by-count") or 0),
         source="crossref", editors=editors, book_title=book_title,
     )
-    if not p.language:
-        p.language = "zh" if has_cjk(p.title) else ""
     return p
 
 

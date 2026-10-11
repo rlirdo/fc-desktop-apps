@@ -486,7 +486,16 @@ class MainWindow:
             n_gap = sum(1 for r in gap.get("pairs", []) + gap.get("triples", []) if self._is_gap(r, thr))
             self.log(f"缺口矩陣完成：{len(gap.get('pairs', []))} 個兩兩、{len(gap.get('triples', []))} 個三三組合，"
                      f"缺口 {n_gap} 個")
-            self.status(f"缺口矩陣完成：缺口 {n_gap} 個")
+            rows = gap.get("pairs", []) + gap.get("triples", [])
+            n_fail = sum(1 for r in rows if r.get("count") is None)
+            st = str(gap.get("status") or "").lower()
+            if st == "failed" or (rows and n_fail == len(rows)):
+                self.status("缺口矩陣查詢失敗")
+                self.log("缺口矩陣查詢失敗：所有組合都沒有取得篇數")
+            elif n_fail or st == "partial":
+                self.status(f"缺口矩陣部分完成：缺口 {n_gap} 個、{n_fail} 個組合查詢失敗")
+            else:
+                self.status(f"缺口矩陣完成：缺口 {n_gap} 個")
             if gap.get("errors"):
                 self.log("缺口矩陣部分請求失敗：" + "；".join(map(str, gap["errors"]))[:300])
             if gap.get("budget_exhausted"):
@@ -541,7 +550,8 @@ class MainWindow:
                 p = BK.Paper.from_dict(p)
             self.lst_top.insert("end", f"{p.year or ''}  {p.title}  ({p.container})")
         if not r.get("top"):
-            self.lst_top.insert("end", "（此組合沒有命中文獻）")
+            self.lst_top.insert("end", "（此組合查詢失敗，沒有取得篇數）" if r.get("count") is None
+                                else "（此組合沒有命中文獻）")
 
     def _draw_trend(self):
         cv = self.cv_trend

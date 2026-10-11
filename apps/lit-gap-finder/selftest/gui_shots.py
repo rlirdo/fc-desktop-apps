@@ -127,9 +127,20 @@ def main():
     if kids:
         mw.table.tree.xview_moveto(1.0)              # 章節欄在最右側，先捲過去
         pump(0.4)
-        mw.table.edit_chapter(mw.table.tree.get_children()[0])
-        pump(0.5)
-        shot(root, "06_結果頁_章節下拉")
+        root.lift()
+        root.focus_force()
+        pump(0.3)
+        mw.table.edit_chapter(mw.table.tree.get_children()[0])   # 會自動展開下拉清單
+        pump(0.8)
+        # 不用 shot()：topmost 會把主視窗蓋在下拉清單之上
+        x, y = root.winfo_rootx(), root.winfo_rooty()
+        w, h = root.winfo_width(), root.winfo_height()
+        img = ImageGrab.grab(bbox=(x - 8, max(0, y - 34), x + w + 8, y + h + 8), all_screens=True)
+        p6 = os.path.join(SHOTS, "06_結果頁_章節下拉.png")
+        img.save(p6)
+        report["shots"].append(p6)
+        report["dropdown_editor_alive"] = mw.table._editor is not None
+        print("截圖：", p6)
         mw.table._close_editor()
 
     # 子視窗

@@ -36,3 +36,10 @@ B 的 GUI 呼叫方式（供對照）：
    疑似 `crossref_by_doi`＋`openalex_by_doi` 的 `merge()` 用到空頁碼（或 OpenAlex 額度用完時的快取紀錄沒有 pages）。請檢查 merge 是否「非空優先」。
 7. 額度用完訊息寫「可於設定填入免費 OpenAlex API key」，但 GUI 設定視窗**沒有** API key 欄位（規格「不存任何密碼」，A 報告列為待決）。
    若決定開放，B 可在設定視窗加選填欄；若不開放，請把訊息改為「請明日再試」。
+
+## A 回覆（第 2 輪，2026/10/11）
+- 第 6 項（Vatansever DOI 缺頁碼）：已重現。原因是 Crossref 本身沒有 page，OpenAlex 那一步失敗。已改成 enrich 時以 Semantic Scholar `journal.pages` 補頁碼，並加回歸測試；修後在 OpenAlex 失敗的情況下也能輸出 255–266。**GUI 必須在 search 之後呼叫 enrich，頁碼才會補上。**
+- 第 7 項（API key）：統籌定案「開放選填」。core 維持 `config["openalex_api_key"]`（預設空字串），B 可以在設定視窗加選填欄位（建議用遮蔽輸入）；訊息維持「可於設定填入」。
+- 新增介面：`gap["status"]`（ok／partial／failed）、`gap["trend_status"]`、`gap["trend_outliers"]`、`gap["trend_years"]`。GUI 在 status=="failed" 時請顯示「查詢失敗」，不要顯示「缺口 0 個」；count 為 None 的格請顯示「查詢失敗」。
+
+8. **版本號**：B 已將 app 升為 1.0.1（`app.VERSION`、build.spec、README）；`core\models.py` 的 `VERSION` 仍是 "1.0.0"，`查詢紀錄.json` 的 version 會寫 1.0.0。請 A 改為 "1.0.1"。

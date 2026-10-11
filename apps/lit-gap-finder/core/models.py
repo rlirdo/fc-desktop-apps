@@ -122,15 +122,17 @@ class Paper:
 
     @property
     def is_chinese(self) -> bool:
-        """中文文獻（套中文 APA、排在中文區）。含日文假名或語言標為非中文者不算。"""
-        if has_kana(self.title):
+        """中文文獻（套中文 APA、排在中文區）。
+        判定順序：①JST 機器翻譯紀錄（題名含 Powered by NICT）→ 非中文；②language 欄（Crossref／OpenAlex／手動）
+        zh＝中文、其他語言＝非中文；③無 language 時：含假名＝日文非中文，否則題名漢字占文字 ≥30% 或第一作者為漢字＝中文。"""
+        if "powered by nict" in (self.title or "").lower():
             return False
-        lang = (self.language or "").lower()
-        if lang.startswith("zh"):
-            return True
-        if lang and not lang.startswith("zh"):
+        lang = (self.language or "").lower().strip()
+        if lang:
+            return lang.startswith("zh") or lang in ("chi", "cht", "chs", "中文")
+        if has_kana(self.title) or has_kana(self.container):
             return False
-        return has_cjk(self.title) or has_cjk(self.first_author_family)
+        return cjk_ratio(self.title) >= 0.3 or has_cjk(self.first_author_family)
 
     def indicator_summary(self) -> str:
         """結果表「指標摘要」欄：✔/✘/? 串。"""
@@ -168,6 +170,13 @@ class Paper:
 
 def has_cjk(s: str) -> bool:
     return any("一" <= ch <= "鿿" or "㐀" <= ch <= "䶿" for ch in (s or ""))
+
+
+def cjk_ratio(s: str) -> float:
+    letters = [ch for ch in (s or "") if ch.isalpha()]
+    if not letters:
+        return 0.0
+    return sum(1 for ch in letters if "\u4e00" <= ch <= "\u9fff" or "\u3400" <= ch <= "\u4dbf") / len(letters)
 
 
 def has_kana(s: str) -> bool:

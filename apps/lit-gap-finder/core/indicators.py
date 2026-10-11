@@ -17,7 +17,7 @@ import math
 import re
 from typing import Optional
 
-from .models import Paper, TYPE_LABELS
+from .models import Paper, TYPE_LABELS, has_kana
 
 # 主要出版社（⑦：ISSN 存在且在 DOAJ 或為主要出版社者視為通過）
 MAJOR_PUBLISHERS = [
@@ -133,7 +133,7 @@ def evaluate(papers: list, settings: Optional[dict] = None) -> list:
             else:
                 ind["issn"] = (None, "待人工確認")
         if checks.get("lang"):
-            code = (p.language or ("zh" if p.is_chinese else "")).lower()
+            code = (p.language or ("zh" if p.is_chinese else ("ja" if has_kana(p.title) else ""))).lower()
             if lang in ("any", "", "不限"):
                 ind["lang"] = (True, code or "未知")
             elif not code:

@@ -250,6 +250,39 @@ def _cjk_font_path() -> Optional[str]:
     return None
 
 
+def _evidence_table(ps: list, markup, body, avail_w: float):
+    """證據表：欄寬依頁寬自動分配（符號欄固定窄、文字欄依內容長度比例分配），Paragraph 儲存格自動折行。"""
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Table, TableStyle, Paragraph
+    cell = ParagraphStyle("cell", parent=body, fontSize=8, leading=10, wordWrap="CJK")
+    head = ["序", "文內引用", "DOI"] + [IND_SHORT[k] for k in IND_ORDER] + ["⑫", "來源"]
+    rows = [[Paragraph(markup(h, ""), cell) for h in head]]
+    raw = []
+    for n, p in enumerate(ps, 1):
+        vals = [str(n), in_text(p), p.doi or "—"] + [_ind_mark(p, k) for k in IND_ORDER] + [
+            f"{p.relevance:.1f}", "手動" if p.source == "manual" else p.source]
+        raw.append(vals)
+        rows.append([Paragraph(markup(v, ""), cell) for v in vals])
+    fixed = {0: 0.9, 3: 1.0, 4: 1.0, 5: 1.0, 6: 1.0, 7: 1.6, 8: 1.0, 9: 1.0, 10: 1.6}   # 公分
+    from reportlab.lib.units import cm as _cm
+    fixed_w = sum(fixed.values()) * _cm
+    flex = [i for i in range(len(head)) if i not in fixed]
+    lens = {i: max(8, min(40, max(len(r[i]) for r in raw) if raw else 8)) for i in flex}
+    rest = max(avail_w - fixed_w, 4 * _cm)
+    widths = []
+    for i in range(len(head)):
+        widths.append(fixed[i] * _cm if i in fixed else rest * lens[i] / sum(lens.values()))
+    scale = avail_w / sum(widths)
+    widths = [w * min(1.0, scale) for w in widths]
+    t = Table(rows, colWidths=widths, repeatRows=1)
+    t.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#94A3B8")),
+                           ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E2E8F0")),
+                           ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                           ("LEFTPADDING", (0, 0), (-1, -1), 2), ("RIGHTPADDING", (0, 0), (-1, -1), 2)]))
+    return t
+
+
 def write_pdf_reportlab(papers: list, path: str, options: dict, gap: Optional[dict] = None) -> None:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
@@ -282,10 +315,24 @@ def write_pdf_reportlab(papers: list, path: str, options: dict, gap: Optional[di
     except Exception:
         pass
 
+    sym = cjk
+    for fn in ("seguisym.ttf", "seguiemj.ttf"):
+        sp = os.path.join(fdir, fn)
+        if os.path.isfile(sp):
+            try:
+                pdfmetrics.registerFont(TTFont("FCSym", sp))
+                sym = "FCSym"
+                break
+            except Exception:
+                pass
+    SYM = "\u2460-\u24ff\u2700-\u27bf\u2190-\u21ff\u25a0-\u25ff"
+
     def markup(text: str, st: str) -> str:
         out = []
-        for seg in re.findall(r"[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]+|[^\u3000-\u303f\u3400-\u9fff\uff00-\uffef]+", text):
-            if re.match(r"[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]", seg):
+        for seg in re.findall(r"[" + SYM + "]+|[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]+|[^" + SYM + "\u3000-\u303f\u3400-\u9fff\uff00-\uffef]+", text):
+            if re.match(r"[" + SYM + "]", seg):
+                out.append(f'<font face="{sym}">{escape(seg)}</font>')
+            elif re.match(r"[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]", seg):
                 f = cjk
                 s = escape(seg)
                 out.append(f'<font face="{f}">{"<b>" + s + "</b>" if st == "b" else s}</font>')
@@ -322,10 +369,10 @@ def write_pdf_reportlab(papers: list, path: str, options: dict, gap: Optional[di
     else:
         for p in ps:
             add(p)
-    story += [PageBreak(), Paragraph(markup("附錄一　指標證據表", ""), h2)]
-    for n, p in enumerate(ps, 1):
-        line = f"{n}. {in_text(p)}｜DOI {p.doi or '—'}｜" + "｜".join(_ind_text(p, k) for k in IND_ORDER) + f"｜⑫{p.relevance:.2f}"
-        story.append(Paragraph(markup(line, ""), body))
+    story += [PageBreak(), Paragraph(markup("附錄一　指標證據表", ""), h2),
+              Paragraph(markup("✔＝通過　✘＝未通過　？＝待人工確認；判定理由見「文獻清單與指標.xlsx」。手動＝使用者自填，未經 API 驗證。", ""), body),
+              Spacer(1, 6)]
+    story.append(_evidence_table(ps, markup, body, A4[0] - 2 * 2.54 * cm))
     story += [Spacer(1, 12), Paragraph(markup("附錄二　檢索策略", ""), h2)]
     for line in strategy_lines(papers, gap, options):
         story.append(Paragraph(markup(line, ""), body))
@@ -386,7 +433,7 @@ def write_gap_xlsx(gap: dict, path: str) -> None:
     M = matrix_table(gap)
     red = PatternFill("solid", fgColor="F8D7DA")
     for i, row in enumerate(M):
-        ws.append([labels[i]] + [("" if v is None else v) for v in row])
+        ws.append([labels[i]] + [("查詢失敗" if v is None else v) for v in row])
         for j, v in enumerate(row):
             if i != j and v is not None and v < thr:
                 ws.cell(row=i + 2, column=j + 2).fill = red
@@ -423,7 +470,13 @@ def write_gap_xlsx(gap: dict, path: str) -> None:
     for y in years:
         ws4.append([y] + [tb[i].get(y, 0) for i in tb])
     ws5 = wb.create_sheet("說明")
-    for line in [f"資料來源：{gap.get('source', 'OpenAlex')}", f"門檻：< {thr} 篇標為缺口",
+    tr_status = gap.get("trend_status") or {}
+    tr_out = gap.get("trend_outliers") or {}
+    for line in [f"查詢狀態：{ {'ok': '全部成功', 'partial': '部分查詢失敗（空白格＝未取得，非 0 篇）', 'failed': '全部查詢失敗（不可解讀為無缺口／0 篇）'}.get(gap.get('status'), '未知') }",
+                 f"趨勢年度：{(gap.get('trend_years') or ('', ''))[0]}–{(gap.get('trend_years') or ('', ''))[1]}（未完整年份 {gap.get('partial_year_excluded', '')} 已排除）",
+                 "趨勢狀態：" + "；".join(f"第 {int(i) + 1} 組 { {'ok': '成功', 'failed': '查詢失敗', 'skipped': '未查'}.get(v, v)}" for i, v in tr_status.items()),
+                 "趨勢異常值：" + ("；".join(f"第 {int(i) + 1} 組 {', '.join(map(str, ys))} 年" for i, ys in tr_out.items() if ys) or "無"),
+                 f"資料來源：{gap.get('source', 'OpenAlex')}", f"門檻：< {thr} 篇標為缺口",
                  f"耗時：{gap.get('elapsed_sec')} 秒", "錯誤：" + ("；".join(gap.get("errors") or []) or "無")]:
         ws5.append([line])
     wb.save(path)
@@ -581,11 +634,15 @@ def write_trend_png(papers: list, gap: Optional[dict], path: str) -> None:
     # ---- 上：折線
     this = _dt.date.today().year - 1           # 近 10 個完整年度
     series = []
+    outl = {}
+    trend_failed = bool(gap) and not gap.get("trend_by_group") and "failed" in (gap.get("trend_status") or {}).values()
     from_gap = bool(gap and gap.get("trend_by_group"))
     if from_gap:
         for i, tr in gap["trend_by_group"].items():
             g = (gap.get("groups") or [])[int(i)] if gap.get("groups") else [str(i)]
-            series.append((f"{int(i) + 1}. {g[0]}", {int(y): c for y, c in tr.items()}))
+            name = f"{int(i) + 1}. {g[0]}"
+            series.append((name, {int(y): c for y, c in tr.items() if y is not None}))
+            outl[name] = set(int(y) for y in (gap.get("trend_outliers") or {}).get(i, []))
     else:
         cnt = {y: 0 for y in range(this - 9, this + 1)}
         for p in papers:
@@ -594,9 +651,10 @@ def write_trend_png(papers: list, gap: Optional[dict], path: str) -> None:
         series.append(("本次檢索結果", cnt))
     years = list(range(this - 9, this + 1))
     x0, y0, x1, y1 = 140, 110, W - 440, 520
-    vmax = max([1] + [v for _, s in series for v in s.values()])
+    vmax = max([1] + [v for n_, s in series for y, v in s.items() if y not in outl.get(n_, set())])
     log = vmax > 50 * max(1, min([max(s.values()) or 1 for _, s in series]))   # 量級差太大改對數
     def ty(v):
+        v = min(v, vmax)                       # 異常值截在頂端並另行標註
         if log:
             return y1 - (y1 - y0) * (math.log10(1 + v) / math.log10(1 + vmax))
         return y1 - (y1 - y0) * v / vmax
@@ -617,7 +675,10 @@ def write_trend_png(papers: list, gap: Optional[dict], path: str) -> None:
         col = PALETTE[si % len(PALETTE)]
         pts = [(x0 + 20 + i * step, ty(s.get(y, 0))) for i, y in enumerate(years)]
         d.line(pts, fill=col, width=4)
-        for (px, py) in pts:
+        for (px, py), y in zip(pts, years):
+            if y in outl.get(name, set()):
+                d.ellipse((px - 11, py - 11, px + 11, py + 11), outline="#C0392B", width=4)
+                d.text((px - 16, py + 14), f"異常值 {s.get(y, 0):,}", font=f_s, fill="#C0392B", anchor="rt")
             d.ellipse((px - 6, py - 6, px + 6, py + 6), fill=col)
         ly = y0 + 10 + si * 34
         d.rectangle((x1 + 30, ly + 4, x1 + 52, ly + 22), fill=col)
@@ -625,6 +686,14 @@ def write_trend_png(papers: list, gap: Optional[dict], path: str) -> None:
         while d.textlength(lab, font=f_l) > W - (x1 + 62) - 20 and len(lab) > 4:
             lab = lab[:-1]
         d.text((x1 + 62, ly), lab if lab == name else lab[:-1] + "…", font=f_l, fill=ink)
+    if any(outl.values()):
+        d.text((x0 + 10, y1 - 30), "紅圈＝異常值（> 其他年中位數 3 倍，疑似資料庫批次匯入；已截頂，不計入刻度）",
+               font=f_s, fill="#C0392B")
+    if trend_failed:
+        msg = "OpenAlex 趨勢查詢失敗（未回應或額度用完），改以本次檢索結果繪製"
+        bb = d.textbbox(((x0 + x1) / 2, y1 - 40), msg, font=f_l, anchor="mb")
+        d.rectangle((bb[0] - 10, bb[1] - 6, bb[2] + 10, bb[3] + 6), fill="#FFF4F2", outline="#C0392B")
+        d.text(((x0 + x1) / 2, y1 - 40), msg, font=f_l, fill="#C0392B", anchor="mb")
     d.text((x0, y0 - 34), "每年篇數" + ("（對數刻度）" if log else "") + ("　來源：OpenAlex（各關鍵字組）" if from_gap else "　來源：本次檢索結果"),
            font=f_l, fill=grey)
 

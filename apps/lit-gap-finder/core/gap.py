@@ -44,6 +44,20 @@ def yearly_counts(groups: list, mailto: str, years: int = 10, cancel_event=None)
     return out
 
 
+def find_outliers(trend: dict, factor: float = 3.0) -> list:
+    """某年篇數 > 其他年份中位數×factor（且多出 100 篇以上）視為異常值（如資料庫批次匯入）。"""
+    ys = sorted(trend)
+    out = []
+    for y in ys:
+        others = sorted(v for k, v in trend.items() if k != y)
+        if len(others) < 3:
+            continue
+        med = others[len(others) // 2]
+        if trend[y] > max(med * factor, med + 100):
+            out.append(y)
+    return out
+
+
 def gap_matrix(groups: list, threshold: int = 5, progress: Progress = None, cancel_event=None,
                mailto: Optional[str] = None, top_n: int = 10, triples: bool = True,
                trend_groups: Optional[str] = None) -> dict:
@@ -105,6 +119,7 @@ def gap_matrix(groups: list, threshold: int = 5, progress: Progress = None, canc
         report(progress, "三三組合 " + "×".join(str(i + 1) for i in idx), k / total)
         trip.append(run(idx))
     trend_by_group = {}
+    trend_status = {i: "skipped" for i in range(len(G))}
     for i, g in enumerate(G):
         if (trend_groups == "first" and i > 0) or budget_out[0]:
             break
@@ -113,14 +128,32 @@ def gap_matrix(groups: list, threshold: int = 5, progress: Progress = None, canc
         report(progress, f"年度趨勢：第 {i + 1} 組", k / total)
         try:
             trend_by_group[i] = yearly_counts([g], mailto, 10, cancel_event)
+            trend_status[i] = "ok"
         except ApiError as e:
             last_errors.append(str(e))
+            trend_status[i] = "failed"
             if getattr(e, "budget", False):
                 budget_out[0] = True
+    if budget_out[0]:
+        for i in trend_status:
+            if trend_status[i] == "skipped" and (trend_groups == "all" or i == 0):
+                trend_status[i] = "failed"
     trend = trend_by_group.get(0, {})
+    outliers = {i: find_outliers(tr) for i, tr in trend_by_group.items()}
+    counts = [x.get("count") for x in singles] + [x.get("count") for x in pairs + trip]
+    if counts and all(c is None for c in counts):
+        status = "failed"
+    elif any(c is None for c in counts):
+        status = "partial"
+    else:
+        status = "ok"
     elapsed = round(time.time() - t0, 1)
     report(progress, f"缺口矩陣完成（{elapsed} 秒）" + ("；部分請求失敗" if last_errors else ""), 1.0)
-    return {"groups": G, "threshold": threshold, "budget_exhausted": budget_out[0], "singles": singles, "pairs": pairs, "triples": trip,
+    # 注意：status 在下方 return 前計算；此處訊息僅供進度列
+    last_full = _dt.date.today().year - 1
+    return {"status": status, "trend_status": trend_status, "trend_outliers": outliers,
+            "trend_years": (last_full - 9, last_full), "partial_year_excluded": last_full + 1,
+            "groups": G, "threshold": threshold, "budget_exhausted": budget_out[0], "singles": singles, "pairs": pairs, "triples": trip,
             "trend": trend, "trend_by_group": trend_by_group, "elapsed_sec": elapsed, "errors": list(last_errors),
             "source": "OpenAlex works search（標題／摘要／全文索引）"}
 

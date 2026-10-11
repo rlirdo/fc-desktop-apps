@@ -4,6 +4,7 @@ DOAJ 判定：Unpaywall `journal_is_in_doaj`，其次 OpenAlex `source.is_in_doa
 """
 from __future__ import annotations
 
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
@@ -84,7 +85,7 @@ def s2_lookup(doi: str, cancel_event=None) -> Optional[dict]:
     if hit is not None:
         return hit or None
     try:
-        data = get_json(S2 + quote(doi, safe="/()"), params={"fields": "citationCount,tldr,abstract"},
+        data = get_json(S2 + quote(doi, safe="/()"), params={"fields": "citationCount,tldr,abstract,journal"},
                         cancel_event=cancel_event, retries=1)
     except ApiError as e:
         if e.status == 404:
@@ -93,6 +94,22 @@ def s2_lookup(doi: str, cancel_event=None) -> Optional[dict]:
         raise
     cache.set(key, data)
     return data
+
+
+def apply_s2(p: Paper, d: dict) -> None:
+    p.cited_by = max(p.cited_by or 0, int(d.get("citationCount") or 0))
+    tl = d.get("tldr") or {}
+    if tl.get("text"):
+        p.tldr = tl["text"]
+    if not p.abstract and d.get("abstract"):
+        p.abstract = d["abstract"]
+    # Crossref 與 OpenAlex 都沒有頁碼時，以 S2 journal.pages 補（只補頁碼；S2 卷號偶有錯誤，不採用）
+    pg = ((d.get("journal") or {}).get("pages") or "").strip()
+    if pg and not p.pages and not p.article_number and p.type in ("journal-article", "proceedings-article", "book-chapter"):
+        pg = re.sub(r"\s*[-–]\s*", "-", pg)
+        if re.fullmatch(r"[A-Za-z]?\d+-[A-Za-z]?\d+", pg):
+            p.pages = pg
+            p.note = (p.note + "；" if p.note else "") + "頁碼取自 Semantic Scholar"
 
 
 def enrich(papers: list, email: str = "", progress: Progress = None, cancel_event=None,
@@ -145,6 +162,9 @@ def enrich(papers: list, email: str = "", progress: Progress = None, cancel_even
     if use_s2 and targets:
         status["s2"] = "使用中"
         s2_targets = sorted(targets, key=lambda p: -(p.cited_by or 0))[: max(0, s2_max)]
+        # 缺頁碼／文章號的期刊論文一律查（補頁碼），不受 s2_max 限制
+        s2_targets += [p for p in targets if p not in s2_targets and not p.pages and not p.article_number
+                       and p.type == "journal-article"]
         fails = 0
         for i, p in enumerate(s2_targets):
             check_cancel(cancel_event)
@@ -161,12 +181,7 @@ def enrich(papers: list, email: str = "", progress: Progress = None, cancel_even
                     break
                 continue
             if d:
-                p.cited_by = max(p.cited_by or 0, int(d.get("citationCount") or 0))
-                tl = d.get("tldr") or {}
-                if tl.get("text"):
-                    p.tldr = tl["text"]
-                if not p.abstract and d.get("abstract"):
-                    p.abstract = d["abstract"]
+                apply_s2(p, d)
         else:
             status["s2"] = "完成"
     report(progress, "補充完成" + (f"（{'；'.join(status['errors'][:3])}）" if status["errors"] else ""), 1.0)
