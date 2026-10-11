@@ -1,0 +1,3 @@
+此檔由 build.spec 放進封裝內的 docx/parts/ 目錄，讓該目錄在磁碟上真實存在。
+python-docx 以 docx/parts/../templates/*.xml 讀預設頁首、頁尾、樣式、設定範本；
+macOS（POSIX）逐層解析路徑，parts 目錄不存在會 ENOENT（Windows 會先做字串正規化所以沒事）。

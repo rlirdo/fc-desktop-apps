@@ -9,3 +9,4 @@ Thumbs.db
 apps/*/selftest_out/
 apps/*/_tmp*/
 build_log.txt
+apps/*/selftest/shots/

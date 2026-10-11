@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """CI 防線：repo 內不得出現「看起來像真實學號」的 9 碼數字（41/61/81 開頭）。
-樣本學號一律使用 9900xxxxx 號段。發現即以非零碼結束，阻止封裝。"""
+樣本學號一律使用 9900xxxxx 號段。email 帳號（後接 @）允許。發現即以非零碼結束，阻止封裝。"""
 import os, re, sys, zipfile
-PAT = re.compile(r'(?<!\d)(?:41|61|81)\d{7}(?!\d)')
+# 緊接「@」者是 email 帳號（規格允許 email，例如 Unpaywall 聯絡信箱），不計
+PAT = re.compile(r'(?<!\d)(?:41|61|81)\d{7}(?![\d@])')
 bad = []
 for root, dirs, files in os.walk('apps'):
     dirs[:] = [d for d in dirs if d not in ('dist', 'build', '__pycache__')]

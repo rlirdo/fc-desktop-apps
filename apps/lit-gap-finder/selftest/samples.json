@@ -1,0 +1,930 @@
+{
+ "note": "FC LitGap Finder 離線自測樣本（15 筆：13 筆書目取自 Crossref 查證、2 筆中文含 1 筆專利、1 筆 26 作者、1 筆無卷期網頁）；source=manual 為手動加入示範",
+ "papers": [
+  {
+   "doi": "10.1515/plm-2012-0034",
+   "title": "Far infrared radiation (FIR): Its biological effects and medical applications",
+   "authors": [
+    {
+     "family": "Vatansever",
+     "given": "Fatma"
+    },
+    {
+     "family": "Hamblin",
+     "given": "Michael R."
+    }
+   ],
+   "year": 2012,
+   "container": "Photonics & Lasers in Medicine",
+   "volume": "1",
+   "issue": "4",
+   "pages": "255-266",
+   "article_number": "",
+   "type": "journal-article",
+   "issn": [
+    "2193-0643",
+    "2193-0635"
+   ],
+   "publisher": "Walter de Gruyter GmbH",
+   "language": "en",
+   "abstract": "Far infrared (FIR) radiation biological effects and medical applications review.",
+   "cited_by": 300,
+   "oa_status": "",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "",
+   "title": "遠紅外線散熱陶瓷漿料、使用該漿料製備之纖維布、使用該漿料製備之薄膜及其製備方法",
+   "authors": [
+    {
+     "family": "吳秋香",
+     "given": ""
+    },
+    {
+     "family": "謝建俊",
+     "given": ""
+    }
+   ],
+   "year": 2014,
+   "container": "",
+   "volume": "",
+   "issue": "",
+   "pages": "",
+   "article_number": "",
+   "type": "patent",
+   "issn": [],
+   "publisher": "經濟部智慧財產局",
+   "language": "zh",
+   "abstract": "",
+   "cited_by": 0,
+   "oa_status": "",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "manual",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "TW201402514A",
+   "patent_office": "中華民國專利公開",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": "使用者自填，未經 API 驗證"
+  },
+  {
+   "doi": "10.1021/acscentsci.6b00277",
+   "title": "Mechanochemistry: A force of synthesis",
+   "authors": [
+    {
+     "family": "Do",
+     "given": "Jean-Louis"
+    },
+    {
+     "family": "Friščić",
+     "given": "Tomislav"
+    }
+   ],
+   "year": 2017,
+   "container": "ACS Central Science",
+   "volume": "3",
+   "issue": "1",
+   "pages": "13-19",
+   "article_number": "",
+   "type": "journal-article",
+   "issn": [
+    "2374-7943",
+    "2374-7951"
+   ],
+   "publisher": "American Chemical Society (ACS)",
+   "language": "en",
+   "abstract": "Mechanochemistry, reactions driven by mechanical force such as ball milling, for green synthesis.",
+   "cited_by": 900,
+   "oa_status": "gold",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "10.1016/j.heliyon.2018.e00923",
+   "title": "Development of an electrolysis based system to continuously recover magnesium from seawater",
+   "authors": [
+    {
+     "family": "Sano",
+     "given": "Yoshihiko"
+    },
+    {
+     "family": "Hao",
+     "given": "Yuxin"
+    },
+    {
+     "family": "Kuwahara",
+     "given": "Fujio"
+    }
+   ],
+   "year": 2018,
+   "container": "Heliyon",
+   "volume": "4",
+   "issue": "11",
+   "pages": "",
+   "article_number": "e00923",
+   "type": "journal-article",
+   "issn": [
+    "2405-8440"
+   ],
+   "publisher": "Elsevier BV",
+   "language": "en",
+   "abstract": "Electrolysis based system to recover magnesium from seawater.",
+   "cited_by": 40,
+   "oa_status": "gold",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "10.1039/d0sc06000c",
+   "title": "Water as the reaction medium in organic chemistry: From our worst enemy to our best friend",
+   "authors": [
+    {
+     "family": "Cortes-Clerget",
+     "given": "Margery"
+    },
+    {
+     "family": "Yu",
+     "given": "Julie"
+    },
+    {
+     "family": "Kincaid",
+     "given": "Joseph R. A."
+    },
+    {
+     "family": "Walde",
+     "given": "Peter"
+    },
+    {
+     "family": "Gallou",
+     "given": "Fabrice"
+    },
+    {
+     "family": "Lipshutz",
+     "given": "Bruce H."
+    }
+   ],
+   "year": 2021,
+   "container": "Chemical Science",
+   "volume": "12",
+   "issue": "12",
+   "pages": "4237-4266",
+   "article_number": "",
+   "type": "journal-article",
+   "issn": [
+    "2041-6520",
+    "2041-6539"
+   ],
+   "publisher": "Royal Society of Chemistry (RSC)",
+   "language": "en",
+   "abstract": "Water as reaction medium with surfactant micelle technology such as TPGS-750-M.",
+   "cited_by": 350,
+   "oa_status": "gold",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "10.3390/mti5070037",
+   "title": "An overview of twenty-five years of augmented reality in education",
+   "authors": [
+    {
+     "family": "Garzón",
+     "given": "Juan"
+    }
+   ],
+   "year": 2021,
+   "container": "Multimodal Technologies and Interaction",
+   "volume": "5",
+   "issue": "7",
+   "pages": "",
+   "article_number": "37",
+   "type": "journal-article",
+   "issn": [
+    "2414-4088"
+   ],
+   "publisher": "MDPI AG",
+   "language": "en",
+   "abstract": "Twenty-five years of augmented reality in education research reviewed.",
+   "cited_by": 200,
+   "oa_status": "gold",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "10.3390/ma15248785",
+   "title": "Magnesium silicate binding materials formed from heat-treated serpentine-group minerals and aqueous solutions: Structural features, acid-neutralizing capacity, and strength properties",
+   "authors": [
+    {
+     "family": "Ivanova",
+     "given": "Tatiana K."
+    },
+    {
+     "family": "Kremenetskaya",
+     "given": "Irina P."
+    },
+    {
+     "family": "Marchevskaya",
+     "given": "Vera V."
+    },
+    {
+     "family": "Slukovskaya",
+     "given": "Marina V."
+    },
+    {
+     "family": "Drogobuzhskaya",
+     "given": "Svetlana V."
+    }
+   ],
+   "year": 2022,
+   "container": "Materials",
+   "volume": "15",
+   "issue": "24",
+   "pages": "",
+   "article_number": "8785",
+   "type": "journal-article",
+   "issn": [
+    "1996-1944"
+   ],
+   "publisher": "MDPI AG",
+   "language": "en",
+   "abstract": "Heat-treated serpentine minerals form magnesium silicate binding materials.",
+   "cited_by": 8,
+   "oa_status": "gold",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "10.3390/min13030318",
+   "title": "Recovery of Mg from H2SO4 leaching solution of serpentine to precipitation of high-purity Mg(OH)2 and 4MgCO3·Mg(OH)2·4H2O",
+   "authors": [
+    {
+     "family": "Chen",
+     "given": "Yang"
+    },
+    {
+     "family": "Yang",
+     "given": "Xue"
+    },
+    {
+     "family": "Wu",
+     "given": "Lin"
+    },
+    {
+     "family": "Tong",
+     "given": "Ling"
+    },
+    {
+     "family": "Zhu",
+     "given": "Jie"
+    }
+   ],
+   "year": 2023,
+   "container": "Minerals",
+   "volume": "13",
+   "issue": "3",
+   "pages": "",
+   "article_number": "318",
+   "type": "journal-article",
+   "issn": [
+    "2075-163X"
+   ],
+   "publisher": "MDPI AG",
+   "language": "en",
+   "abstract": "Magnesium recovered from sulfuric acid leaching solution of serpentine.",
+   "cited_by": 10,
+   "oa_status": "gold",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "10.3390/min15010062",
+   "title": "Serpentinite applications: Effects of surface-ions-modified natural silicate minerals on cultivation of magnesium–manganese-enriched garlics",
+   "authors": [
+    {
+     "family": "Hung",
+     "given": "Fei Shan"
+    }
+   ],
+   "year": 2025,
+   "container": "Minerals",
+   "volume": "15",
+   "issue": "1",
+   "pages": "",
+   "article_number": "62",
+   "type": "journal-article",
+   "issn": [
+    "2075-163X"
+   ],
+   "publisher": "MDPI AG",
+   "language": "en",
+   "abstract": "Surface-ions-modified serpentinite minerals applied to garlic cultivation.",
+   "cited_by": 1,
+   "oa_status": "gold",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "10.1016/0749-5978(91)90020-t",
+   "title": "The theory of planned behavior",
+   "authors": [
+    {
+     "family": "Ajzen",
+     "given": "Icek"
+    }
+   ],
+   "year": 1991,
+   "container": "Organizational Behavior and Human Decision Processes",
+   "volume": "50",
+   "issue": "2",
+   "pages": "179-211",
+   "article_number": "",
+   "type": "journal-article",
+   "issn": [
+    "0749-5978"
+   ],
+   "publisher": "Elsevier BV",
+   "language": "en",
+   "abstract": "Theory of planned behavior: attitudes, subjective norms and perceived behavioral control.",
+   "cited_by": 90000,
+   "oa_status": "",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "10.1021/jo101974u",
+   "title": "TPGS-750-M: A second-generation amphiphile for metal-catalyzed cross-couplings in water at room temperature",
+   "authors": [
+    {
+     "family": "Lipshutz",
+     "given": "Bruce H."
+    },
+    {
+     "family": "Ghorai",
+     "given": "Subir"
+    },
+    {
+     "family": "Abela",
+     "given": "Alexander R."
+    },
+    {
+     "family": "Moser",
+     "given": "Ralph"
+    },
+    {
+     "family": "Nishikata",
+     "given": "Takashi"
+    },
+    {
+     "family": "Duplais",
+     "given": "Christophe"
+    },
+    {
+     "family": "Krasovskiy",
+     "given": "Arkady"
+    },
+    {
+     "family": "Gaston",
+     "given": "Ricky D."
+    },
+    {
+     "family": "Gadwood",
+     "given": "Robert C."
+    }
+   ],
+   "year": 2011,
+   "container": "The Journal of Organic Chemistry",
+   "volume": "76",
+   "issue": "11",
+   "pages": "4379-4391",
+   "article_number": "",
+   "type": "journal-article",
+   "issn": [
+    "0022-3263",
+    "1520-6904"
+   ],
+   "publisher": "American Chemical Society (ACS)",
+   "language": "en",
+   "abstract": "TPGS-750-M designer surfactant micelles enable cross-couplings in water.",
+   "cited_by": 600,
+   "oa_status": "green",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "10.1039/c5gc02371h",
+   "title": "Surfactant technology applied toward an active pharmaceutical ingredient: More than a simple green chemistry advance",
+   "authors": [
+    {
+     "family": "Gallou",
+     "given": "Fabrice"
+    },
+    {
+     "family": "Isley",
+     "given": "Nicholas A."
+    },
+    {
+     "family": "Ganic",
+     "given": "Adnan"
+    },
+    {
+     "family": "Onken",
+     "given": "Ulrich"
+    },
+    {
+     "family": "Parmentier",
+     "given": "Michael"
+    }
+   ],
+   "year": 2016,
+   "container": "Green Chemistry",
+   "volume": "18",
+   "issue": "1",
+   "pages": "14-19",
+   "article_number": "",
+   "type": "journal-article",
+   "issn": [
+    "1463-9262",
+    "1463-9270"
+   ],
+   "publisher": "Royal Society of Chemistry (RSC)",
+   "language": "en",
+   "abstract": "Surfactant micelle technology applied to active pharmaceutical ingredient synthesis in water.",
+   "cited_by": 200,
+   "oa_status": "",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "10.1038/s41586-020-2649-2",
+   "title": "Array programming with NumPy",
+   "authors": [
+    {
+     "family": "Harris",
+     "given": "Charles R."
+    },
+    {
+     "family": "Millman",
+     "given": "K. Jarrod"
+    },
+    {
+     "family": "van der Walt",
+     "given": "Stéfan J."
+    },
+    {
+     "family": "Gommers",
+     "given": "Ralf"
+    },
+    {
+     "family": "Virtanen",
+     "given": "Pauli"
+    },
+    {
+     "family": "Cournapeau",
+     "given": "David"
+    },
+    {
+     "family": "Wieser",
+     "given": "Eric"
+    },
+    {
+     "family": "Taylor",
+     "given": "Julian"
+    },
+    {
+     "family": "Berg",
+     "given": "Sebastian"
+    },
+    {
+     "family": "Smith",
+     "given": "Nathaniel J."
+    },
+    {
+     "family": "Kern",
+     "given": "Robert"
+    },
+    {
+     "family": "Picus",
+     "given": "Matti"
+    },
+    {
+     "family": "Hoyer",
+     "given": "Stephan"
+    },
+    {
+     "family": "van Kerkwijk",
+     "given": "Marten H."
+    },
+    {
+     "family": "Brett",
+     "given": "Matthew"
+    },
+    {
+     "family": "Haldane",
+     "given": "Allan"
+    },
+    {
+     "family": "del Río",
+     "given": "Jaime Fernández"
+    },
+    {
+     "family": "Wiebe",
+     "given": "Mark"
+    },
+    {
+     "family": "Peterson",
+     "given": "Pearu"
+    },
+    {
+     "family": "Gérard-Marchant",
+     "given": "Pierre"
+    },
+    {
+     "family": "Sheppard",
+     "given": "Kevin"
+    },
+    {
+     "family": "Reddy",
+     "given": "Tyler"
+    },
+    {
+     "family": "Weckesser",
+     "given": "Warren"
+    },
+    {
+     "family": "Abbasi",
+     "given": "Hameer"
+    },
+    {
+     "family": "Gohlke",
+     "given": "Christoph"
+    },
+    {
+     "family": "Oliphant",
+     "given": "Travis E."
+    }
+   ],
+   "year": 2020,
+   "container": "Nature",
+   "volume": "585",
+   "issue": "7825",
+   "pages": "357-362",
+   "article_number": "",
+   "type": "journal-article",
+   "issn": [
+    "0028-0836",
+    "1476-4687"
+   ],
+   "publisher": "Springer Science and Business Media LLC",
+   "language": "en",
+   "abstract": "NumPy array programming library for Python.",
+   "cited_by": 15000,
+   "oa_status": "hybrid",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "crossref",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": ""
+  },
+  {
+   "doi": "",
+   "title": "自測示範條目：蛇紋石與深層海水文獻整理",
+   "authors": [
+    {
+     "family": "自測示範",
+     "given": ""
+    }
+   ],
+   "year": 2026,
+   "container": "自測示範刊物",
+   "volume": "1",
+   "issue": "1",
+   "pages": "1-10",
+   "article_number": "",
+   "type": "journal-article",
+   "issn": [],
+   "publisher": "",
+   "language": "zh",
+   "abstract": "",
+   "cited_by": 0,
+   "oa_status": "",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "manual",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": "使用者自填，未經 API 驗證（自測示範資料，非真實書目）"
+  },
+  {
+   "doi": "",
+   "title": "OpenAlex: The open catalog to the global research system",
+   "authors": [
+    {
+     "family": "OurResearch",
+     "given": ""
+    }
+   ],
+   "year": null,
+   "container": "OpenAlex",
+   "volume": "",
+   "issue": "",
+   "pages": "",
+   "article_number": "",
+   "type": "webpage",
+   "issn": [],
+   "publisher": "",
+   "language": "en",
+   "abstract": "",
+   "cited_by": 0,
+   "oa_status": "",
+   "oa_pdf_url": "",
+   "oa_license": "",
+   "source": "manual",
+   "doaj": null,
+   "indicators": {},
+   "relevance": 0.0,
+   "chapter": "未分類",
+   "include": true,
+   "order": 0,
+   "url": "https://openalex.org/",
+   "editors": [],
+   "book_title": "",
+   "edition": "",
+   "patent_number": "",
+   "patent_office": "",
+   "month_day": "",
+   "accessed": "",
+   "tldr": "",
+   "oa_pdf_alts": [],
+   "doi_ok": null,
+   "openalex_id": "",
+   "note": "使用者自填，未經 API 驗證（無卷期示範）"
+  }
+ ]
+}

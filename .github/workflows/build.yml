@@ -16,6 +16,7 @@ jobs:
           - { dir: name-masker,        name: NameMasker }
           - { dir: homework-wordcloud, name: HomeworkWordCloud }
           - { dir: club-manager,       name: ClubManager }
+          - { dir: lit-gap-finder,     name: FCLitGapFinder }
     runs-on: ${{ matrix.os }}
     defaults:
       run:

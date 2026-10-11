@@ -9,6 +9,7 @@
 | `apps/name-masker` | **NameMasker** 姓名遮罩 | Excel「姓名」欄第 2 字改 O，另存 `原檔名02.xlsx`，完全離線 |
 | `apps/homework-wordcloud` | **HomeworkWordCloud** 學生作業文字雲 | Zuvio 匯出→姓名遮罩→每題文字雲→分析簡報 PPTX |
 | `apps/club-manager` | **ClubManager** 仰望社團管理系統 | 本機伺服器＋系統瀏覽器開啟社團管理系統（總版＋各校版），資料存瀏覽器 |
+| `apps/lit-gap-finder` | **FCLitGapFinder** FC文獻缺口搜尋工具 | Crossref／OpenAlex 多組關鍵字檢索→合格指標→缺口矩陣→APA 7 Word／PDF、Excel、RIS／BibTeX 匯出（需連網） |
 
 ## 下載
 
@@ -31,4 +32,4 @@ WeeklyReportMaker.exe --selftest
 
 ## 隱私
 
-所有程式完全離線；範例與測試資料皆為合成，repo 內不含任何真實學生個資。
+除 FC文獻缺口搜尋工具需連網查詢公開書目 API 外，其餘程式完全離線；範例與測試資料皆為合成，repo 內不含任何真實學生個資。
