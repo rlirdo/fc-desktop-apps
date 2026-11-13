@@ -1,0 +1,8 @@
+requests>=2.31
+numpy>=1.24
+faster-whisper>=1.1.0   # 本機離線語音辨識（CTranslate2）；不使用 VAD，所以不需要 onnxruntime
+ctranslate2>=4.4.0
+av>=12.0.0              # PyAV：解碼音檔、編碼 mp3（libmp3lame 內含於 wheel），不需要 ffmpeg 執行檔
+pillow>=10.0.0          # make_icon.py 產生圖示、--shots 截圖
+pyinstaller>=6.0        # 僅打包時需要
+# 不要裝 torch、onnxruntime（build.spec 也會排除）

@@ -17,6 +17,7 @@ jobs:
           - { dir: homework-wordcloud, name: HomeworkWordCloud }
           - { dir: club-manager,       name: ClubManager }
           - { dir: lit-gap-finder,     name: FCLitGapFinder }
+          - { dir: hakka-voice,        name: HakkaVoiceHelper }
     runs-on: ${{ matrix.os }}
     defaults:
       run:

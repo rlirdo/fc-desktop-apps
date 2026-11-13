@@ -10,6 +10,7 @@
 | `apps/homework-wordcloud` | **HomeworkWordCloud** 學生作業文字雲 | Zuvio 匯出→姓名遮罩→每題文字雲→分析簡報 PPTX |
 | `apps/club-manager` | **ClubManager** 仰望社團管理系統 | 本機伺服器＋系統瀏覽器開啟社團管理系統（總版＋各校版），資料存瀏覽器 |
 | `apps/lit-gap-finder` | **FCLitGapFinder** FC文獻缺口搜尋工具 | Crossref／OpenAlex 多組關鍵字檢索→合格指標→缺口矩陣→APA 7 Word／PDF、Excel、RIS／BibTeX 匯出（需連網） |
+| `apps/hakka-voice` | **HakkaVoiceHelper** 客語語音小幫手 | 華語→官方翻譯網頁輔助交接（不自動連三個客語網站）、客語漢字→語音 mp3（公開語音合成 API，需連網）、客語語音→文字試用版（本機離線，模型另發） |
 
 ## 下載
 
@@ -32,4 +33,4 @@ WeeklyReportMaker.exe --selftest
 
 ## 隱私
 
-除 FC文獻缺口搜尋工具需連網查詢公開書目 API 外，其餘程式完全離線；範例與測試資料皆為合成，repo 內不含任何真實學生個資。
+除 FC文獻缺口搜尋工具需連網查詢公開書目 API、客語語音小幫手的語音合成需連網外，其餘程式完全離線；範例與測試資料皆為合成，repo 內不含任何真實學生個資。
