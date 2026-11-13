@@ -37,7 +37,8 @@ WeeklyReportMaker.exe --selftest
 
 ## 聲明
 
-本 repo 的程式為原創作品，由 Claude Code 協作撰寫，內容由作者（游豐兆）負責。
+本 repo 的程式為原創作品，原始碼以 MIT License 公開（見 `LICENSE`）；程式由 Claude Code 協作撰寫，內容由作者（游豐兆）負責。
 
 - 程式產生的文件、簡報、音檔等成果屬 AI 輔助產出，使用前請由使用者審核。
 - 各程式引用的外部服務與模型，其授權與來源標示寫在各 app 的 `README_使用說明.md`。
+- MIT License 只涵蓋本 repo 的原始碼；各程式連用的外部服務、模型與其產出（例如客語語音小幫手使用的 CC BY-NC 4.0 語音模型）仍依各自的授權。
