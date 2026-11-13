@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""客語語音小幫手 HakkaVoiceHelper 1.0.0
+"""客語語音小幫手 HakkaVoiceHelper 1.0.1
 
 給幼兒園客語老師的三步驟小工具（畫面與草稿交給工具，客語定稿交給老師）：
   ① 華語變客語文字：把華語放進剪貼簿、開官方翻譯網頁，由老師本人翻譯後貼回（輔助交接）。
@@ -11,13 +11,14 @@
   HakkaVoiceHelper.exe --version
   HakkaVoiceHelper.exe --selftest            離線自我測試（結果寫 selftest\\selftest.log）
   HakkaVoiceHelper.exe --selftest-online     實際合成一句「恁早。」並驗證長度
-  HakkaVoiceHelper.exe --tts "客語漢字" [--accent sixian] [--speaker 標籤或值] [--speed 1] --out x.mp3
+  HakkaVoiceHelper.exe --tts "客語漢字" [--accent sixian] [--speaker 標籤或值] [--speed 1] [--official-pinyin "官方拼音"] --out x.mp3
   HakkaVoiceHelper.exe --asr 音檔 [--model 模型資料夾] [--out x.txt]
   HakkaVoiceHelper.exe --shots 資料夾        以示範資料產生教學截圖（不連網、不跑模型）
 """
 import datetime
 import os
 import queue
+import re
 import sys
 import tempfile
 import threading
@@ -27,11 +28,12 @@ import webbrowser
 
 import core_asr
 import core_audio
+import core_pinyin
 import core_tts
 
 APP_NAME = "客語語音小幫手"
 EXE_NAME = "HakkaVoiceHelper"
-VERSION = "1.0.0"
+VERSION = core_tts.VERSION   # 1.0.1
 CREDIT = "NDHU 自資系 游豐兆 製作"          # 右下角製作者字樣
 MOTTO = "畫面與草稿交給工具，客語定稿交給老師｜AI 生成，教師審核"
 
@@ -59,8 +61,23 @@ RULES_TEXT = (
 
 ASR_NOTICE = ("在這台電腦上離線辨識，音檔不會上傳。結果是華語為主的繁體中文，"
               "只能抓大意、常會聽錯，請老師對照原音校對。短句、發音清楚、教材式的句子比較準。")
+ASR_EMPTY = "沒有辨識出文字。這段錄音可能太短、太小聲，或模型聽不懂；請改用客委會語音辨識網頁。"
 TTS_NOTICE = ("文字會送到公開的語音合成示範服務，請勿輸入幼兒姓名或任何個資；"
               "這是共用服務，請勿大量連續使用。")
+
+# 自我測試用的真實比對資料：(客語漢字, 客委會即時翻譯的官方拼音, 語音合成回傳的拼音)，四縣腔
+PINYIN_CASES = [
+    ("天光日請帶等水壺摎帽仔。", "tienˊ gongˊ ngidˋ qiangˋ dai denˋ suiˋ fuˇ lauˊ mo eˋ.",
+     "tien24 gong24 ngid2 qiang31 dai55 den31 sui31 fu11 lau24 mo55 e31。"),
+    ("小朋友，\U0002B8C6共下來唱歌仔。","seuˋ penˇ iuˊ, enˊ kiung ha loiˇ cong goˊ eˋ.",
+     "seu31 pen11 iu24，en24 kiung55 ha55 loi11 cong55 go24 e31。"),
+    ("食飯前愛先洗手。", "siid fan qienˇ oi xienˊ seˋ suˋ.",
+     "siid5 fan55 qien11 oi55 xien24 se31 su31。"),
+    ("落雨吔，記得著水衣。", "log iˋ eˊ, gi dedˋ zogˋ suiˋ iˊ.",
+     "log5 i31 e31，gi55 ded2 do31 sui31 i24。"),
+    ("恁早啊，細兔仔愛去學校上課。", "anˋ zoˋ a, se tu eˋ oi hi hog gauˋ song ko.",
+     "an31 zo31 a55，se55 tu55 e31 oi55 hi55 hog5 gau31 song24 ko55。"),
+]
 
 AUDIO_TYPES = [("音檔", "*.mp3 *.wav *.m4a *.aac *.ogg *.flac"), ("所有檔案", "*.*")]
 
@@ -70,8 +87,17 @@ DEMO_MANDARIN = "早安，小兔子要去學校上課。"
 DEMO_HAKKA = "恁早啊，細兔仔愛去學校上課。"
 DEMO_SEG = "恁早 啊 ， 細兔仔 愛去 學校 上課 。"
 DEMO_PIN = "an31 zo31 a55，se55 tu55 e31 oi55 hi55 hog5 gau31 song24 ko55。"
-DEMO_ASR_FILE = "客語語音_示範.mp3"
-DEMO_ASR_TEXT = "早安，小兔子愛去學校上課"
+DEMO_OFFICIAL = "anˋ zoˋ a, se tu eˋ oi hi hog gauˋ song ko."
+DEMO_ASR_FILE = "食飯前愛先洗手.mp3"          # 講師 2026/11/13 實測的真實辨識結果
+DEMO_ASR_SECS = "0:02"
+DEMO_ASR_TEXT = "食飯前要先洗手"
+DEMO2_HAKKA = "落雨吔，記得著水衣。"
+DEMO2_SEG = "落雨 吔 ， 記得 著水衣 。"
+DEMO2_PIN = "log5 i31 e31，gi55 ded2 do31 sui31 i24。"
+DEMO2_OFFICIAL = "log iˋ eˊ, gi dedˋ zogˋ suiˋ iˊ."
+SHOT_NAMES = ["S10-01_客語語音小幫手_華語變客語文字.png", "S10-02_客語語音小幫手_文字變語音.png",
+              "S10-03_客語語音小幫手_產生完成.png", "S10-04_客語語音小幫手_語音變文字.png",
+              "S10-05_客語語音小幫手_拼音比對提醒.png"]
 
 
 # --------------------------------------------------------------------------
@@ -167,9 +193,15 @@ def speaker_label_of(speakers, value):
     return "預設語者"
 
 
+def compare_result(results, hakka, official_pinyin, accent):
+    """用真實比對函式比對官方拼音與語音拼音（所有句子的拼音接起來）。"""
+    return core_pinyin.compare(official_pinyin or "", " ".join(r[2] for r in results), hakka, accent)
+
+
 def save_tts_result(results, out_path, *, mandarin, hakka, accent, speaker_label, speed,
-                    translate_source):
+                    translate_source, official_pinyin=""):
     """把逐句結果串接存 mp3，並寫 <檔名>_來源說明.txt。回傳 (mp3, note, 秒數)。"""
+    cmp_ = compare_result(results, hakka, official_pinyin, accent)
     samples, sr = core_audio.concat_wavs([r[3] for r in results])
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     core_audio.write_mp3(samples, sr, out_path)
@@ -178,7 +210,8 @@ def save_tts_result(results, out_path, *, mandarin, hakka, accent, speaker_label
         f.write(core_tts.source_note(
             mandarin=mandarin, hakka=hakka, segs=[r[1] for r in results],
             pinyins=[r[2] for r in results], accent=accent, speaker_label=speaker_label,
-            speed=speed, translate_source=translate_source))
+            speed=speed, translate_source=translate_source, official_pinyin=official_pinyin,
+            compare_lines=cmp_["lines"] if cmp_["provided"] else None))
     return out_path, note, len(samples) / float(sr)
 
 
@@ -228,20 +261,55 @@ def run_selftest():
                                  speaker_label="x", speed=1, translate_source=SRC_MOE)
     check("非 Gohakka 不加 CC BY-SA 行、無華語時不列華語", "CC BY-SA" not in note2 and "【華語原句】" not in note2)
 
+    check("來源說明含【官方拼音】未提供", "【官方拼音】\n未提供" in note2)
+    # 3b. 官方拼音比對（2026/11/13 講師以客委會即時翻譯人工取得的官方拼音 vs 語音合成拼音）
+    for i, (h, o, v) in enumerate(PINYIN_CASES[:3], 1):
+        r = core_pinyin.compare(o, v, h, "sixian")
+        check("拼音比對第 %d 組：音節與聲調全一致" % i,
+              r["ok"] and not r["tone_hints"] and r["char_mapped"], " / ".join(r["lines"]))
+    h, o, v = PINYIN_CASES[3]
+    r = core_pinyin.compare(o, v, h, "sixian")
+    bad = [(x["char"], x["official"], x["voice"]) for x in r["syllable_issues"]]
+    tones = [x["char"] for x in r["tone_hints"]]
+    check("拼音比對第 4 組：抓到「著 zogˋ／do31」音節不同、「吔」聲調提示",
+          bad == [("著", "zogˋ", "do31")] and tones == ["吔"] and any("第 6 字『著』" in x for x in r["lines"]),
+          " / ".join(r["lines"]))
+    h, o, v = PINYIN_CASES[4]
+    r = core_pinyin.compare(o, v, h, "sixian")
+    check("拼音比對第 5 組：音節一致、聲調提示含「上」",
+          r["ok"] and "上" in [x["char"] for x in r["tone_hints"]], " / ".join(r["lines"]))
+    r = core_pinyin.compare(PINYIN_CASES[3][1], PINYIN_CASES[3][2], PINYIN_CASES[3][0], "hailu")
+    check("非四縣腔只比音節", not r["tone_hints"] and "此腔調只比對音節，不比聲調" in r["lines"])
+    r = core_pinyin.compare("", PINYIN_CASES[0][2], PINYIN_CASES[0][0])
+    check("沒貼官方拼音時提示", r["lines"] == ["沒有貼官方拼音，無法自動檢查；請老師聽一遍確認"])
+    r = core_pinyin.compare("tienˊ gongˊ", PINYIN_CASES[0][2], PINYIN_CASES[0][0])
+    check("字數對不上時提示人工核對", any("字數與音節數對不上" in x for x in r["lines"]))
+    check("罕用字位置（U+2B8C6）", core_pinyin.astral_positions(PINYIN_CASES[1][0]) == [(4, "\U0002B8C6")])
+
+    # 3c. 斷行：英數詞不拆開
+    lines = wrap_text("網站非會員每次 100 字、線上即時翻譯每日 1,000 字；GoHakka.org；CC BY-SA 4.0。",
+                      lambda s: len(s.encode("utf-8")) * 4, 60)
+    check("斷行不拆英數詞", all(any(w in ln for ln in lines) for w in ("100", "1,000", "GoHakka.org", "BY-SA", "4.0"))
+          and "".join(lines).replace(" ", "") == "網站非會員每次100字、線上即時翻譯每日1,000字；GoHakka.org；CCBY-SA4.0。",
+          " | ".join(lines))
+
     # 4. WAV → MP3 → 解碼長度
     try:
         w1 = core_audio.make_wav_bytes(core_audio.sine_wave(1.2, 22050), 22050)
         w2 = core_audio.make_wav_bytes(core_audio.sine_wave(0.8, 16000, 660), 16000)
-        res = [("a", "a", "a", w1), ("b", "b", "b", w2)]
-        mp3 = os.path.join(tmp, "合成正弦波.mp3")
-        _, notep, secs = save_tts_result(res, mp3, mandarin="", hakka="測試", accent="sixian",
-                                         speaker_label="測試", speed=1, translate_source=SRC_SELF)
+        res = [("a", "a", "an31 zo31", w1), ("b", "b", "a55", w2)]
+        mp3 = os.path.join(tmp, "合成正弦波\U0002B8C6.mp3")      # 檔名含罕用字（U+2B8C6）也要能存
+        _, notep, secs = save_tts_result(res, mp3, mandarin="", hakka="恁早啊", accent="sixian",
+                                         speaker_label="測試", speed=1, translate_source=SRC_SELF,
+                                         official_pinyin="anˋ zoˋ a")
         expect = 1.2 + 0.8 + core_audio.GAP_SECONDS
         got = core_audio.decoded_duration(mp3)
         err = abs(got - expect) / expect
         check("WAV→MP3 編碼再解碼，長度誤差 <5%", err < 0.05,
               "預期 %.2f 秒、實得 %.2f 秒（誤差 %.1f%%）" % (expect, got, err * 100))
-        check("來源說明檔已寫出", os.path.exists(notep))
+        check("來源說明檔已寫出（檔名含罕用字）", os.path.exists(notep) and os.path.exists(mp3))
+        nt = open(notep, encoding="utf-8").read()
+        check("來源說明含比對結果", "【與官方拼音比對】\n✓ 3 個音節全部一致，聲調也一致" in nt and "anˋ zoˋ a" in nt)
     except Exception as e:  # noqa: BLE001
         check("WAV→MP3 編碼", False, "%s\n%s" % (e, traceback.format_exc()))
 
@@ -298,7 +366,7 @@ def run_selftest_online():
     return 1
 
 
-def run_tts_cli(text, accent, speaker, speed, out_path):
+def run_tts_cli(text, accent, speaker, speed, out_path, official=""):
     try:
         if accent not in core_tts.ACCENT_ZH:
             raise core_tts.TTSError("腔調要是：" + "、".join(core_tts.ACCENT_ZH))
@@ -309,10 +377,13 @@ def run_tts_cli(text, accent, speaker, speed, out_path):
             out_path = os.path.join(os.getcwd(), core_tts.safe_filename(text) + ".mp3")
         mp3, note, secs = save_tts_result(res, out_path, mandarin="", hakka=text, accent=accent,
                                           speaker_label=speaker_label_of(sp, val), speed=float(speed),
-                                          translate_source=SRC_SELF)
+                                          translate_source=SRC_SELF, official_pinyin=official or "")
         for r in res:
             out("斷詞：" + r[1])
             out("拼音：" + r[2])
+        out("與官方拼音比對：")
+        for line in compare_result(res, text, official, accent)["lines"]:
+            out("  " + line)
         out("已存：%s（%.1f 秒）" % (mp3, secs))
         out("來源說明：%s" % note)
         return 0
@@ -334,7 +405,7 @@ def run_asr_cli(audio, model_dir, out_path):
         text = core_asr.transcribe_text(m, audio)
         out("辨識 %.1f 秒" % (time.time() - t))
         out("辨識結果：")
-        out(text)
+        out(text if text.strip() else ASR_EMPTY)
         if out_path:
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(text + "\n")
@@ -358,6 +429,16 @@ def pick_font():
         if f in fams:
             return f
     return "TkDefaultFont"
+
+
+def pinyin_font(fallback):
+    import tkinter.font as tkfont
+    try:
+        if "Segoe UI" in set(tkfont.families()):
+            return ("Segoe UI", 11)
+    except Exception:  # noqa: BLE001
+        pass
+    return (fallback, 11)
 
 
 class App:
@@ -396,6 +477,7 @@ class App:
         self.FS = (fam, 9)
         self.FT = (fam, 14, "bold")
         self.FE = (fam, 13)
+        self.FP = pinyin_font(fam)     # 聲調符號 ˊˇˋ 在正黑體會變寬，拼音欄改用 Segoe UI
         st = ttk.Style(root)
         try:
             st.theme_use("vista" if sys.platform == "win32" else st.theme_use())
@@ -524,6 +606,8 @@ class App:
             else:
                 self.v_hint.set("")
             self.btn_next.configure(state="normal" if h else "disabled")
+            self.v_astral1.set(astral_hint(h))
+            self.v_astral2.set(astral_hint(self.get(self.t_tts)))
             h2 = self.get(self.t_tts).strip()
             if not self.fn_user_edited:
                 self.v_fname.set(core_tts.safe_filename(h2) if h2 else "")
@@ -552,7 +636,7 @@ class App:
         self.v_count = tk.StringVar(value="0 字")
         self.lbl_count = tk.Label(top, textvariable=self.v_count, font=self.FS, fg="#64748B")
         self.lbl_count.pack(side="left", padx=8)
-        fr, self.t_man = self.text(left, 4)
+        fr, self.t_man = self.text(left, 3)
         fr.pack(fill="both", expand=True, pady=(2, 6))
 
         bx = ttk.LabelFrame(left, text=" 複製華語並開啟官方翻譯網頁（翻譯由老師本人操作） ", padding=(8, 4))
@@ -572,13 +656,22 @@ class App:
         tk.Label(mid, text="客語漢字", font=self.FB, fg="#065A82").pack(side="left")
         self.v_src = tk.StringVar(value="翻譯來源：%s" % SRC_SELF)
         tk.Label(mid, textvariable=self.v_src, font=self.FS, fg="#64748B").pack(side="left", padx=8)
-        fr, self.t_hak = self.text(left, 4)
-        fr.pack(fill="both", expand=True, pady=(2, 4))
+        fr, self.t_hak = self.text(left, 3)
+        fr.pack(fill="both", expand=True, pady=(2, 0))
         self.t_hak.bind("<Key>", lambda e: self.mark_self_typed(e))
+        self.v_astral1 = tk.StringVar(value="")
+        tk.Label(left, textvariable=self.v_astral1, font=self.FS, fg="#B45309", anchor="w").pack(fill="x")
+
+        tk.Label(left, text="官方拼音（選填，貼上後可自動檢查語音有沒有唸錯）", font=self.FB,
+                 fg="#065A82", anchor="w").pack(fill="x", pady=(2, 0))
+        fr, self.t_off = self.text(left, 2)
+        self.t_off.configure(font=self.FP)
+        fr.pack(fill="x", pady=(2, 4))
 
         bar = ttk.Frame(left)
         bar.pack(fill="x")
         ttk.Button(bar, text="貼上客語漢字（從剪貼簿）", command=self.paste_hakka).pack(side="left")
+        ttk.Button(bar, text="貼上官方拼音（從剪貼簿）", command=self.paste_official).pack(side="left", padx=(6, 0))
         ttk.Button(bar, text="清除", command=self.clear_tab1).pack(side="left", padx=6)
         self.btn_next = ttk.Button(bar, text="下一步：變成語音 →", style="Primary.TButton",
                                    command=self.go_tab2, state="disabled")
@@ -590,12 +683,30 @@ class App:
         self.v_rules = tk.BooleanVar(value=True)
         self.btn_rules = ttk.Button(self.rules_col, text="▼ 三個網站的使用規定（按此收合）", command=self.toggle_rules)
         self.btn_rules.pack(fill="x")
-        self.rules_box = tk.Text(self.rules_col, font=self.FS, fg="#1E293B", wrap="char", width=34,
+        self.rules_box = tk.Text(self.rules_col, font=self.FS, fg="#1E293B", wrap="none", width=34,
                                  bg="#F5F9FA", relief="solid", borderwidth=1, padx=8, pady=8,
                                  spacing2=2, cursor="arrow")
-        self.rules_box.insert("1.0", RULES_TEXT)
-        self.rules_box.configure(state="disabled")
         self.rules_box.pack(fill="both", expand=True, pady=(4, 0))
+        self._rules_w = None
+        self.rules_box.bind("<Configure>", lambda e: self.rewrap_rules())
+        self.rewrap_rules()
+
+    def rewrap_rules(self):
+        """依目前寬度重新斷行（英數詞不拆開）；視窗縮放時會自動呼叫。"""
+        import tkinter.font as tkfont
+        f = tkfont.Font(font=self.FS)
+        w = self.rules_box.winfo_width()
+        if w <= 1:
+            w = f.measure("0") * 34 + 20
+        avail = w - 2 * 8 - 2 * int(self.rules_box.cget("borderwidth")) - 6
+        if avail == self._rules_w:
+            return
+        self._rules_w = avail
+        txt = "\n".join(wrap_text(RULES_TEXT, f.measure, max(80, avail)))
+        self.rules_box.configure(state="normal")
+        self.rules_box.delete("1.0", "end")
+        self.rules_box.insert("1.0", txt)
+        self.rules_box.configure(state="disabled")
 
     def toggle_rules(self):
         if self.v_rules.get():
@@ -634,9 +745,19 @@ class App:
         self.set(self.t_hak, s.strip())
         self.status("已貼上客語漢字，請檢查用字後按「下一步：變成語音 →」。")
 
+    def paste_official(self):
+        try:
+            s = self.root.clipboard_get()
+        except Exception:  # noqa: BLE001
+            self.status("剪貼簿是空的：請先在官方網頁複製拼音。")
+            return
+        self.set(self.t_off, " ".join(s.split()))
+        self.status("已貼上官方拼音；產生語音後會自動比對有沒有唸錯字。")
+
     def clear_tab1(self):
         self.set(self.t_man, "")
         self.set(self.t_hak, "")
+        self.set(self.t_off, "")
         self.set_source(SRC_SELF)
 
     def go_tab2(self):
@@ -644,6 +765,7 @@ class App:
         if not h:
             return
         self.set(self.t_tts, h)
+        self.v_off.set(" ".join(self.get(self.t_off).split()))
         self.fn_user_edited = False
         self.nb.select(self.tab2)
 
@@ -652,8 +774,15 @@ class App:
         tk, ttk = self.tk, self.ttk
         f = self.tab2
         tk.Label(f, text="客語漢字（可直接修改）", font=self.FB, fg="#065A82", anchor="w").pack(fill="x")
-        fr, self.t_tts = self.text(f, 3)
-        fr.pack(fill="x", pady=(2, 6))
+        fr, self.t_tts = self.text(f, 2)
+        fr.pack(fill="x", pady=(2, 0))
+        self.v_astral2 = tk.StringVar(value="")
+        tk.Label(f, textvariable=self.v_astral2, font=self.FS, fg="#B45309", anchor="w").pack(fill="x")
+        of = ttk.Frame(f)
+        of.pack(fill="x", pady=(0, 6))
+        tk.Label(of, text="官方拼音（選填）", font=self.FB).pack(side="left")
+        self.v_off = tk.StringVar(value="")
+        ttk.Entry(of, textvariable=self.v_off, font=self.FP).pack(side="left", fill="x", expand=True, padx=6)
 
         opt = ttk.Frame(f)
         opt.pack(fill="x")
@@ -772,6 +901,7 @@ class App:
         spd = round(float(self.v_speed.get()) * 20) / 20
         man = self.get(self.t_man).strip()
         src = self.translate_source
+        off = " ".join(self.v_off.get().split())
         self.set(self.t_res, "")
         self.btn_moe_tts.pack_forget()
 
@@ -781,8 +911,9 @@ class App:
             os.makedirs(folder, exist_ok=True)
             path = core_tts.unique_path(folder, stem)
             mp3, note, secs = save_tts_result(res, path, mandarin=man, hakka=h, accent=acc,
-                                              speaker_label=lab, speed=spd, translate_source=src)
-            self.ui(self.tts_done, res, mp3, note, secs)
+                                              speaker_label=lab, speed=spd, translate_source=src,
+                                              official_pinyin=off)
+            self.ui(self.tts_done, res, mp3, note, secs, compare_result(res, h, off, acc))
 
         def guarded():
             try:
@@ -794,17 +925,55 @@ class App:
         self.status("開始產生…（一句一句送，每句約 5–10 秒）")
         self.start_job(guarded)
 
-    def show_tts_result(self, segs, pins, mp3, note, secs):
-        txt = ("【斷詞】\n" + "\n".join(segs) + "\n\n【客語拼音】\n" + "\n".join(pins)
-               + "\n\n【檔案】\n%s（%.1f 秒）\n%s" % (mp3, secs, note))
-        self.set(self.t_res, txt)
+    def show_tts_result(self, segs, pins, mp3, note, secs, cmp_=None):
+        t = self.t_res
+        t.configure(state="normal")
+        t.delete("1.0", "end")
+        t.tag_configure("h", font=self.FB, foreground="#065A82")
+        t.tag_configure("ok", foreground="#2E7D5B", font=self.FB)
+        t.tag_configure("bad", foreground="#B91C1C", font=self.FB)
+        t.tag_configure("tone", foreground="#B45309")
+        t.tag_configure("gray", foreground="#64748B")
+        sep = "" if len(segs) <= 1 else "\n"          # 只有一句就跟標題同一行，畫面比較不擠
+        t.insert("end", "【斷詞】" + sep, "h")
+        t.insert("end", "\n".join(segs) + "\n")
+        t.insert("end", "【客語拼音】" + sep, "h")
+        t.insert("end", "\n".join(pins) + "\n")
+        t.insert("end", "【與官方拼音比對】\n", "h")
+        bad = False
+        if not cmp_ or not cmp_.get("provided"):
+            t.insert("end", "沒有貼官方拼音，無法自動檢查；請老師聽一遍確認\n", "gray")
+        else:
+            bad = bool(cmp_["syllable_issues"])
+            in_tone = False
+            for line in cmp_["lines"]:
+                if line.startswith("聲調不同"):
+                    in_tone = True
+                if line.startswith("✓"):
+                    tag = "ok"
+                elif line.startswith("此腔調") or line.startswith("字數與音節數"):
+                    tag = "gray"
+                elif in_tone:
+                    tag = "tone"
+                else:
+                    tag = "bad"
+                t.insert("end", line + "\n", tag)
+        t.insert("end", "【檔案】", "h")
+        t.insert("end", "%s（%.1f 秒）\n%s" % (mp3, secs, note))
+        t.configure(state="disabled")
+        if bad:
+            self.btn_moe_tts.pack(side="right")
+        else:
+            self.btn_moe_tts.pack_forget()
         self.last_mp3 = mp3
         self.btn_play.configure(state="normal")
         self.btn_folder.configure(state="normal")
         self.status("完成！可以按「播放」聽聽看。請老師確認發音；給孩子聽的請由老師親口唸。")
 
-    def tts_done(self, res, mp3, note, secs):
-        self.show_tts_result([r[1] for r in res], [r[2] for r in res], mp3, note, secs)
+    def tts_done(self, res, mp3, note, secs, cmp_=None):
+        self.show_tts_result([r[1] for r in res], [r[2] for r in res], mp3, note, secs, cmp_)
+        if cmp_ and cmp_.get("syllable_issues"):
+            self.status("完成，但有字和官方拼音不同：這幾個字語音可能唸錯，請看下方比對結果。")
 
     def tts_failed(self, msg):
         self.set(self.t_res, "產生失敗：%s\n\n可能原因：網路沒通、公開示範服務正在休眠或忙碌。"
@@ -915,6 +1084,7 @@ class App:
                     self.q.put(("status", "載入模型中（約十幾秒）…"))
                 m = core_asr.load_model(mdir)
                 total = 0.0
+                got = False
                 for item in core_asr.transcribe_iter(m, path):
                     if self.cancel.is_set():
                         self.q.put(("status", "已取消。"))
@@ -923,12 +1093,23 @@ class App:
                         total = item[1]
                         self.q.put(("status", "辨識中… 0／%s" % fmt_secs(total)))
                         continue
+                    if item[2].strip():
+                        got = True
                     self.ui(self.asr_append, item[2])
                     self.q.put(("status", "辨識中… %s／%s" % (fmt_secs(item[1]), fmt_secs(total))))
+                if not got:
+                    self.ui(self.asr_empty)
+                    return
                 self.q.put(("status", "辨識完成。請對照原音校對（結果偏華語、常會聽錯）。"))
             except Exception as e:  # noqa: BLE001
                 self.q.put(("status", "辨識失敗：%s" % e))
         self.start_job(work)
+
+    def asr_empty(self):
+        self.t_asr.tag_configure("warn", foreground="#B45309", font=self.FB)
+        self.t_asr.delete("1.0", "end")
+        self.t_asr.insert("1.0", ASR_EMPTY, "warn")
+        self.status(ASR_EMPTY)
 
     def asr_append(self, s):
         if not s:
@@ -960,8 +1141,10 @@ class App:
     def fill_demo(self):
         self.set(self.t_man, DEMO_MANDARIN)
         self.set(self.t_hak, DEMO_HAKKA)
+        self.set(self.t_off, DEMO_OFFICIAL)
         self.set_source(SRC_MOE)
         self.set(self.t_tts, DEMO_HAKKA)
+        self.v_off.set(DEMO_OFFICIAL)
         demo_sp = [{"value": "demo", "raw_label": "", "label": "語者 1（女／苗栗）"}]
         self.speakers, self.speaker_default = demo_sp, "demo"
         self.cb_spk.configure(values=[demo_sp[0]["label"]])
@@ -969,7 +1152,58 @@ class App:
         self.v_spk_msg.set("共 18 位語者（執行時取得）")
         self.lbl_spk.configure(fg="#2E7D5B")
         self.audio_path = os.path.join(DEMO_DIR, DEMO_ASR_FILE)
-        self.v_audio.set("音檔：%s（長度 0:03）" % DEMO_ASR_FILE)
+        self.v_audio.set("音檔：%s（長度 %s）" % (DEMO_ASR_FILE, DEMO_ASR_SECS))
+
+
+_TOKEN_RE = re.compile(r"[A-Za-z0-9.,:/@+%'\-]+|[ \t]+|.", re.S)
+_CLOSERS = set("，。、；：！？）」』》〉,.;:!?)")
+_OPENERS = set("（「『《〈(")
+
+
+def wrap_text(text, measure, width):
+    """斷行：中文字之間可斷，連續英數字與符號（100、1,000、GoHakka.org、BY-SA、API）不拆開；
+    行首不放收尾標點、行尾不留開頭標點。measure(s) 回傳像素寬。"""
+    out = []
+    for para in str(text).split("\n"):
+        toks = []
+        hold = ""
+        for tk in _TOKEN_RE.findall(para):
+            if tk in _OPENERS:
+                hold += tk
+                continue
+            if tk in _CLOSERS and toks and not toks[-1].isspace():
+                toks[-1] += tk
+                continue
+            toks.append(hold + tk)
+            hold = ""
+        if hold:
+            toks.append(hold)
+        line = ""
+        for tk in toks:
+            if not line and tk.isspace():
+                continue
+            if measure(line + tk) <= width or not line:
+                if not line and measure(tk) > width:       # 單一詞比整行還寬：只好硬切
+                    for c in tk:
+                        if line and measure(line + c) > width:
+                            out.append(line)
+                            line = ""
+                        line += c
+                else:
+                    line += tk
+            else:
+                out.append(line.rstrip())
+                line = "" if tk.isspace() else tk
+        out.append(line.rstrip())
+    return out
+
+
+def astral_hint(s):
+    pos = core_pinyin.astral_positions(s)
+    if not pos:
+        return ""
+    return ("有些客語用字（第 %s 個字）這台電腦可能顯示成方框□：字還在，不影響語音與存檔。"
+            % "、".join(str(p) for p, _ in pos))
 
 
 def fmt_secs(s):
@@ -1017,22 +1251,39 @@ def run_shots(folder):
         files.append(p)
         out("已存：%s（%dx%d）" % (p, img.width, img.height))
 
+    def demo_paths(hakka):
+        stem = DEMO_DIR + "\\" + core_tts.safe_filename(hakka)
+        return stem + ".mp3", stem + "_來源說明.txt"
+
     app.nb.select(app.tab1)
-    app.status("已複製，請到瀏覽器貼上並按翻譯，複製客語漢字後回來按「貼上客語漢字」。")
-    grab("shot1_華語變客語.png")
+    app.status("已貼上官方拼音；產生語音後會自動比對有沒有唸錯字。")
+    grab(SHOT_NAMES[0])
     app.nb.select(app.tab2)
     app.status("準備好了：確認客語漢字、腔調與語者後，按「產生客語語音 mp3」。")
-    grab("shot2_文字變語音.png")
-    mp3 = DEMO_DIR + "\\" + core_tts.safe_filename(DEMO_HAKKA) + ".mp3"
-    note = DEMO_DIR + "\\" + core_tts.safe_filename(DEMO_HAKKA) + "_來源說明.txt"
-    app.show_tts_result([DEMO_SEG], [DEMO_PIN], mp3, note, 3.3)
-    grab("shot2b_產生完成.png")
+    grab(SHOT_NAMES[1])
+    # 比對結果用真實比對函式算出（不是手寫）
+    cmp1 = core_pinyin.compare(DEMO_OFFICIAL, DEMO_PIN, DEMO_HAKKA, "sixian")
+    mp3, note = demo_paths(DEMO_HAKKA)
+    app.show_tts_result([DEMO_SEG], [DEMO_PIN], mp3, note, 3.6, cmp1)
+    app.status("完成！可以按「播放」聽聽看。請老師確認發音；給孩子聽的請由老師親口唸。")
+    grab(SHOT_NAMES[2])
     app.nb.select(app.tab3)
     app.set(app.t_asr, DEMO_ASR_TEXT)
     app.status("辨識完成。請對照原音校對（結果偏華語、常會聽錯）。")
-    grab("shot3_語音變文字.png")
+    grab(SHOT_NAMES[3])
+    app.nb.select(app.tab2)
+    app.set(app.t_tts, DEMO2_HAKKA)
+    app.v_off.set(DEMO2_OFFICIAL)
+    app.fn_user_edited = False
+    root.update()
+    time.sleep(0.5)        # 讓定時更新把檔名換成新句子
+    cmp2 = core_pinyin.compare(DEMO2_OFFICIAL, DEMO2_PIN, DEMO2_HAKKA, "sixian")
+    mp3, note = demo_paths(DEMO2_HAKKA)
+    app.show_tts_result([DEMO2_SEG], [DEMO2_PIN], mp3, note, 3.0, cmp2)
+    app.status("完成，但有字和官方拼音不同：這幾個字語音可能唸錯，請看下方比對結果。")
+    grab(SHOT_NAMES[4])
     root.destroy()
-    return 0 if len(files) == 4 else 1
+    return 0 if len(files) == 5 else 1
 
 
 # --------------------------------------------------------------------------
@@ -1078,7 +1329,8 @@ def main():
         return code
     if "--tts" in args:
         code = run_tts_cli(_arg(args, "--tts", ""), _arg(args, "--accent", "sixian"),
-                           _arg(args, "--speaker"), _arg(args, "--speed", "1"), _arg(args, "--out"))
+                           _arg(args, "--speaker"), _arg(args, "--speed", "1"), _arg(args, "--out"),
+                           _arg(args, "--official-pinyin", ""))
         write_log("tts.log")
         return code
     if "--asr" in args:

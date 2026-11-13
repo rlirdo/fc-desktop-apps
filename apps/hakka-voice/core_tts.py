@@ -114,16 +114,22 @@ def unique_path(folder, stem, ext=".mp3"):
     return os.path.join(folder, name + ext)
 
 
+VERSION = "1.0.1"
+
+
 def source_note(*, mandarin, hakka, segs, pinyins, accent, speaker_label, speed,
-                translate_source, when=None):
+                translate_source, when=None, official_pinyin="", compare_lines=None):
     """來源說明檔內容（UTF-8 文字）。"""
     when = when or datetime.datetime.now()
-    lines = ["客語語音小幫手 HakkaVoiceHelper 1.0.0 — 來源說明", ""]
+    lines = ["客語語音小幫手 HakkaVoiceHelper %s — 來源說明" % VERSION, ""]
     if (mandarin or "").strip():
         lines += ["【華語原句】", mandarin.strip(), ""]
     lines += ["【客語漢字】", (hakka or "").strip(), ""]
     lines += ["【斷詞】"] + list(segs or []) + [""]
     lines += ["【客語拼音】"] + list(pinyins or []) + [""]
+    lines += ["【官方拼音】", (official_pinyin or "").strip() or "未提供", ""]
+    lines += ["【與官方拼音比對】"] + (list(compare_lines) if compare_lines else
+                                     ["未提供官方拼音，未比對；請老師聽一遍確認"]) + [""]
     lines += ["腔調：%s" % ACCENT_ZH.get(accent, accent),
               "語者：%s" % speaker_label,
               "語速：%s（越大越慢）" % speed,
