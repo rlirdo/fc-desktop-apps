@@ -76,6 +76,7 @@
 
 ## 授權與來源標示
 
+- **聲明**：本程式為原創作品，由 Claude Code 協作撰寫，內容由作者（NDHU 自資系 游豐兆）負責；原始碼公開於 GitHub `rlirdo/fc-desktop-apps`（apps/hakka-voice）。
 - 語音合成：臺灣客語語音合成系統（Hugging Face Space `united-link/taiwanese-hakka-tts`；合作：國立聯合大學智慧客家實驗室），模型 `yourtts-htia-240704`，**CC BY-NC 4.0**。本工具僅供非商業教學使用。
 - 語音辨識：國立臺南大學 KWS 中心 `NUTN-KWS/Whisper-Taiwanese-Hakka-model-v0.2.6`（whisper-large-v3-turbo 微調，**CC BY-NC 4.0**），轉為 CTranslate2 int8 版本機執行。
 - 翻譯來源是 Gohakka 時，來源說明檔會自動加註「GoHakka.org（CC BY-SA 4.0）」。
